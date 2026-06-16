@@ -6,6 +6,10 @@
     "type": "git",
     "url": "git+https://github.com/absolutejs/billing.git"
   },
+  "homepage": "https://github.com/absolutejs/billing",
+  "bugs": {
+    "url": "https://github.com/absolutejs/billing/issues"
+  },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
