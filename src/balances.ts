@@ -19,6 +19,9 @@
  */
 
 const FETCH_TIMEOUT_MS = 6000;
+// The LLM providers' org cost-report endpoints are slow (OpenAI's regularly
+// takes ~6s); give them a generous timeout since the result is cached.
+const COST_FETCH_TIMEOUT_MS = 20_000;
 const MS_PER_SECOND = 1000;
 const MS_PER_DAY = 86_400_000;
 const MILLION = 1_000_000;
@@ -134,17 +137,30 @@ const errored = (provider: string, label: string, message: string) => {
 const fetchJson = async (
   url: string,
   headers: Record<string, string>,
-  method = "GET",
+  opts: { method?: string; timeoutMs?: number } = {},
 ) => {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const timer = setTimeout(
+    () => controller.abort(),
+    opts.timeoutMs ?? FETCH_TIMEOUT_MS,
+  );
   try {
     const response = await fetch(url, {
       headers,
-      method,
+      method: opts.method ?? "GET",
       signal: controller.signal,
     });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    if (!response.ok) {
+      // Surface the vendor's own error text (truncated) so the tile is
+      // actionable — e.g. Deepgram's "needs the billing:read scope".
+      const body = await response.text().catch(() => "");
+      const snippet = body.replace(/\s+/g, " ").trim().slice(0, 160);
+      throw new Error(
+        snippet
+          ? `HTTP ${response.status}: ${snippet}`
+          : `HTTP ${response.status}`,
+      );
+    }
     const json: unknown = await response.json();
 
     return json;
@@ -362,7 +378,7 @@ const apolloBalance = async (creds: { apiKey: string }) => {
     const data = await fetchJson(
       "https://api.apollo.io/api/v1/usage_stats/api_usage_stats",
       { "Content-Type": "application/json", "X-Api-Key": creds.apiKey },
-      "POST",
+      { method: "POST" },
     );
     const { consumed, limit } = pickBusiestDayQuota(data);
 
@@ -446,6 +462,7 @@ const openaiBalance = async (creds: { adminKey: string }) => {
     const data = await fetchJson(
       `https://api.openai.com/v1/organization/costs?start_time=${startTime}&limit=${COST_WINDOW_DAYS + 1}`,
       { Authorization: `Bearer ${creds.adminKey}` },
+      { timeoutMs: COST_FETCH_TIMEOUT_MS },
     );
     const result: ProviderBalance = {
       ...base("openai", "OpenAI"),
@@ -493,6 +510,7 @@ const anthropicBalance = async (creds: { adminKey: string }) => {
     const data = await fetchJson(
       `https://api.anthropic.com/v1/organizations/cost_report?starting_at=${startedAt}`,
       { "anthropic-version": "2023-06-01", "x-api-key": creds.adminKey },
+      { timeoutMs: COST_FETCH_TIMEOUT_MS },
     );
     const result: ProviderBalance = {
       ...base("anthropic", "Anthropic"),
