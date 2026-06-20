@@ -21,23 +21,27 @@ internally). Float drift is structurally impossible: a $0.0002
 per-request price is `200` and rounding policy is explicit.
 
 ```ts
-import { createPlan, computeInvoice, formatMicros } from '@absolutejs/billing';
+import { createPlan, computeInvoice, formatMicros } from "@absolutejs/billing";
 
 const plan = createPlan({
-  name: 'pro',
-  currency: 'usd',
+  name: "pro",
+  currency: "usd",
   basePriceMicros: 20_000_000, // $20/mo
   pricedDimensions: {
-    requests:             { perUnitMicros: 200, freeTier: 1_000_000 },
-    cpuMs:                { perUnitMicros: 50, unit: 1000, freeTier: 60_000 * 60 * 10 },
-    bytesEgress:          { perUnitMicros: 100, unit: 1024 * 1024, freeTier: 100 * 1024 * 1024 },
+    requests: { perUnitMicros: 200, freeTier: 1_000_000 },
+    cpuMs: { perUnitMicros: 50, unit: 1000, freeTier: 60_000 * 60 * 10 },
+    bytesEgress: {
+      perUnitMicros: 100,
+      unit: 1024 * 1024,
+      freeTier: 100 * 1024 * 1024,
+    },
     hibernationGbSeconds: { perUnitMicros: 5 },
   },
 });
 
 const invoice = computeInvoice({
   plan,
-  tenant: 'acme',
+  tenant: "acme",
   period: { start, end },
   usage, // a Usage from @absolutejs/metering
 });
@@ -58,7 +62,7 @@ Optional knobs:
 
 - **`freeTier`** — units subtracted before pricing
 - **`unit`** — divisor so `bytesEgress` priced as MB ↔ `unit:
-  1024*1024`
+1024*1024`
 - **`label`** — invoice line-item display name
 
 Plan-level knobs:
