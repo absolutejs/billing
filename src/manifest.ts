@@ -19,7 +19,7 @@ type BillingRuntime = {
 const tool = toolFactory<BillingRuntime>();
 
 export const manifest = defineManifest<Record<never, never>, BillingRuntime>()({
-  contract: 1,
+  contract: 2,
   identity: {
     accent: "#f59e0b",
     category: "commerce",
@@ -55,6 +55,12 @@ export const manifest = defineManifest<Record<never, never>, BillingRuntime>()({
   tools: {
     explain_plan: tool.runtime({
       annotations: { readOnlyHint: true },
+      authorization: {
+        approval: "never",
+        audience: "authenticated",
+        effects: ["read"],
+        requiredScopes: ["billing:read"],
+      },
       description:
         "Describe the app's pricing plan: base fee, per-dimension unit prices or tier tables, free-tier allowances, rounding, and minimum charge. Amounts are integer micros (1,000,000 micros = 1 currency unit). Custom function-priced dimensions are reported as 'custom'.",
       handler: (_input, { plan }) => {
@@ -86,6 +92,17 @@ export const manifest = defineManifest<Record<never, never>, BillingRuntime>()({
     }),
     preview_invoice: tool.runtime({
       annotations: { idempotentHint: true, readOnlyHint: true },
+      authorization: {
+        approval: "never",
+        audience: "owner",
+        effects: ["read"],
+        requiredScopes: ["billing:preview"],
+        resource: {
+          idField: "tenant",
+          tenantIdField: "tenant",
+          type: "billing-preview",
+        },
+      },
       description:
         "Dry-run an invoice: price a usage snapshot through the app's plan and return the line items and total in integer micros. Pure math — nothing is charged or stored. Usage keys must match the plan's priced dimensions.",
       handler: ({ periodDays, tenant, usage }, { plan }) => {
@@ -118,12 +135,21 @@ export const manifest = defineManifest<Record<never, never>, BillingRuntime>()({
         ),
         usage: Type.Record(Type.String(), Type.Number({ minimum: 0 }), {
           description:
-            "Metered quantities keyed by dimension name, e.g. {\"requests\": 120000}.",
+            'Metered quantities keyed by dimension name, e.g. {"requests": 120000}.',
         }),
       }),
     }),
     provider_balances: tool.runtime({
-      annotations: { openWorldHint: true, readOnlyHint: true },
+      annotations: { idempotentHint: true, openWorldHint: true },
+      authorization: {
+        approval: "policy",
+        audience: "admin",
+        destinations: ["configured-billing-provider"],
+        effects: ["read", "external-network"],
+        idempotency: { mode: "host" },
+        requiredScopes: ["billing:providers:read"],
+        reversible: false,
+      },
       description:
         "Read each configured upstream vendor's OWN reported balance, quota, or spend (Anthropic/OpenAI report spend; Twilio/Deepgram report balance; ElevenLabs/Apollo report quota). Free reporting endpoints — no per-call charge. Reports only the providers the host wired credentials for.",
       handler: async (_input, { balances }) =>
