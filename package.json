@@ -1,6 +1,6 @@
 {
   "name": "@absolutejs/billing",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Cost-model substrate for the AbsoluteJS PaaS. createPlan declares a priced product (base fee + per-dimension unit prices + tiered / free-tier rules); computeInvoice turns a @absolutejs/metering Usage snapshot into Invoice line items in integer micros (no float drift). Pluggable invoice sinks (Stripe / etc.) live in @absolutejs/billing-adapters/*.",
   "repository": {
     "type": "git",
@@ -53,16 +53,13 @@
     "saas",
     "pricing"
   ],
-  "peerDependencies": {
-    "bun-types": "^1.3.14"
-  },
   "devDependencies": {
     "@types/bun": "^1.3.14",
     "prettier": "^3.8.3",
     "typescript": "^5.9.0"
   },
   "dependencies": {
-    "@absolutejs/manifest": "^0.4.0",
+    "@absolutejs/manifest": "^0.7.1",
     "@sinclair/typebox": "^0.34.0"
   },
   "absolutejs": {
