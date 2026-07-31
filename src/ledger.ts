@@ -116,3 +116,103 @@ export const createUsageLedger = (options: UsageLedgerOptions): UsageLedger => {
     },
   };
 };
+
+// -----------------------------------------------------------------------------
+// Credit balances
+// -----------------------------------------------------------------------------
+
+// A credit-based product needs the same four decisions no matter what it
+// sells: what the customer may spend, whether the period has rolled, whether
+// this call is allowed, and whether a grant is real. The lookups behind them
+// (subscriptions, comps, plan tables) are the host's; the arithmetic is not,
+// and it is the part where an off-by-one hands out free usage.
+
+export type CreditBalanceInput = {
+  /** Granted credits that SURVIVE a period reset (referrals, goodwill). */
+  bonusCredits: number;
+  consumed: number;
+  /** Credits the plan grants for the current period. */
+  periodAllowance: number;
+  periodEnd?: Date | null;
+};
+
+export type CreditBalance = {
+  /** periodAllowance + bonusCredits — the spendable ceiling this period. */
+  allowance: number;
+  bonusCredits: number;
+  consumed: number;
+  periodAllowance: number;
+  periodEnd: Date | null;
+  /** Never negative: an over-spend reads as zero left, not a debt. */
+  remaining: number;
+};
+
+/** Derive the spendable view of a stored balance row. */
+export const creditBalanceFrom = (row: CreditBalanceInput): CreditBalance => {
+  const allowance = row.periodAllowance + row.bonusCredits;
+
+  return {
+    allowance,
+    bonusCredits: row.bonusCredits,
+    consumed: row.consumed,
+    periodAllowance: row.periodAllowance,
+    periodEnd: row.periodEnd ?? null,
+    remaining: Math.max(0, allowance - row.consumed),
+  };
+};
+
+/** Whether the billing window has closed and the allowance should re-snapshot.
+ *  A null end date means "no window" — an unbounded balance never lapses. */
+export const isPeriodLapsed = (
+  periodEnd: Date | null | undefined,
+  now = new Date(),
+) =>
+  periodEnd !== null &&
+  periodEnd !== undefined &&
+  periodEnd.getTime() <= now.getTime();
+
+/**
+ * How hard the gate bites. `off` skips the balance read entirely, `warn`
+ * always allows but reports `low` so the UI can say so, `block` refuses once
+ * the remaining balance cannot cover the estimate.
+ */
+export type CreditEnforcementMode = "block" | "off" | "warn";
+
+export type CreditGate = {
+  allowance: number;
+  allowed: boolean;
+  /** True when the balance cannot cover the estimate, in ANY mode — the
+   *  signal a product surfaces before it starts refusing work. */
+  low: boolean;
+  mode: CreditEnforcementMode;
+  remaining: number;
+};
+
+export type CreditGateInput = {
+  allowance: number;
+  estimatedCredits?: number;
+  mode: CreditEnforcementMode;
+  remaining: number;
+};
+
+/** Decide whether a metered call proceeds. Pure — the caller does the reads. */
+export const creditGate = (input: CreditGateInput): CreditGate => {
+  const { allowance, estimatedCredits = 1, mode, remaining } = input;
+  if (mode === "off") {
+    return { allowance: 0, allowed: true, low: false, mode, remaining: 0 };
+  }
+  const sufficient = remaining >= estimatedCredits;
+
+  return {
+    allowance,
+    allowed: mode === "block" ? sufficient : true,
+    low: !sufficient,
+    mode,
+    remaining,
+  };
+};
+
+/** Whether a bonus grant is worth writing — guards against NaN and negatives
+ *  quietly corrupting a balance. */
+export const isGrantableCredits = (credits: number) =>
+  Number.isFinite(credits) && credits > 0;
