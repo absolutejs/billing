@@ -27,8 +27,17 @@
 // Money primitives
 // =============================================================================
 
-/** Integer micros — 1,000,000 micros = 1 unit of the currency. */
+/**
+ * An integer amount in a plan's sub-units. 1,000,000 (micros) by default, but
+ * a plan may choose a finer denomination — see `Plan.denomination`.
+ */
 export type Micros = number;
+
+/** Sub-units per currency unit when a plan does not say otherwise. */
+export const DEFAULT_DENOMINATION = 1_000_000;
+
+/** Nanos — the denomination token-priced APIs need. */
+export const NANO_DENOMINATION = 1_000_000_000;
 
 /**
  * Round a fractional micros value to an integer. The substrate uses
@@ -97,6 +106,17 @@ export type PricedDimension = {
 export type Plan = {
   /** Human label for the invoice (`'pro'`, `'enterprise'`, etc.). */
   name: string;
+  /**
+   * Sub-units per currency unit. Defaults to 1,000,000 (micros).
+   *
+   * Micros are too coarse for token-priced APIs: at $0.16 per million
+   * embedding tokens a five-token call costs $0.0000008, which truncates to
+   * ZERO in micros — so a plan priced in micros systematically under-bills
+   * its cheapest calls. Set `1_000_000_000` to price in nanos, or any other
+   * power of ten the vendor's rate card needs. Every `*Micros` field on the
+   * plan and the invoice is denominated in these sub-units.
+   */
+  denomination?: number;
   /** Optional flat base fee charged once per invoice period. */
   basePriceMicros?: Micros;
   /**
@@ -192,6 +212,8 @@ export type Invoice = {
   tenant: string;
   plan: string;
   currency: string;
+  /** Sub-units per currency unit these amounts are in (default micros). */
+  denomination: number;
   period: InvoicePeriod;
   lineItems: LineItem[];
   /** Sum of all `lineItems[].amountMicros`. */
@@ -341,14 +363,16 @@ export const computeInvoice = ({
     totalMicros = floor;
   }
 
+  const denomination = plan.denomination ?? DEFAULT_DENOMINATION;
   const invoice: Invoice = {
     currency: currency ?? plan.currency ?? "usd",
+    denomination,
     lineItems,
     period,
     plan: plan.name,
     tenant,
     totalMicros,
-    totalUnits: totalMicros / 1_000_000,
+    totalUnits: totalMicros / denomination,
   };
   if (plan.metadata !== undefined) invoice.metadata = plan.metadata;
   return invoice;
@@ -366,11 +390,15 @@ export const computeInvoice = ({
 export const formatMicros = (
   amount: Micros,
   currency: string,
-  { minorUnits = 2 }: { minorUnits?: number } = {},
+  {
+    denomination = DEFAULT_DENOMINATION,
+    minorUnits = 2,
+  }: { denomination?: number; minorUnits?: number } = {},
 ): string => {
   const sign = amount < 0 ? "-" : "";
   const abs = Math.abs(amount);
-  const wholeMicrosPerMinor = 10 ** (6 - minorUnits);
+  const exponent = Math.round(Math.log10(denomination));
+  const wholeMicrosPerMinor = 10 ** (exponent - minorUnits);
   const minorTotal = Math.round(abs / wholeMicrosPerMinor);
   const divisor = 10 ** minorUnits;
   const whole = Math.trunc(minorTotal / divisor);
