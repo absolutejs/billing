@@ -67,10 +67,25 @@ export type BraveUsageSnapshot = {
  * "unconfigured" tile (so a dashboard can show every provider it cares about and
  * label the ones missing a key).
  */
+/** Embedding consumption the host measured itself, against the plan's cap.
+ *  Vector vendors meter tokens per month and simply refuse once spent, so
+ *  this is the number that predicts an outage. */
+export type EmbeddingUsageSnapshot = {
+  capturedAt: string;
+  /** True when the provider is currently refusing embeddings. */
+  exhausted?: boolean;
+  monthlyTokenLimit: number;
+  resetDate?: string | null;
+  tokensUsed: number;
+};
+
 export type ProviderBalanceConfig = {
   anthropic?: { adminKey: string };
   apollo?: { apiKey: string };
   brave?: BraveUsageSnapshot | null;
+  /** Host-supplied embedding usage. Pinecone exposes no usage API to an
+   *  ordinary key, so — like Brave — the app reports what it metered. */
+  pinecone?: EmbeddingUsageSnapshot | null;
   deepgram?: { apiKey: string };
   elevenlabs?: { apiKey: string };
   openai?: { adminKey: string };
@@ -392,6 +407,43 @@ const apolloBalance = async (creds: { apiKey: string }) => {
   }
 };
 
+// --- Pinecone: no usage API for an ordinary key; same host-snapshot shape --
+const compactTokens = (tokens: number) => {
+  const MILLION = 1_000_000;
+  const THOUSAND = 1000;
+  if (tokens >= MILLION) return `${(tokens / MILLION).toFixed(1)}M`;
+
+  return `${Math.round(tokens / THOUSAND)}k`;
+};
+
+const pineconeBalance = (snap: EmbeddingUsageSnapshot | null | undefined) => {
+  if (!snap) {
+    return unconfigured(
+      "pinecone",
+      "Pinecone embeddings",
+      "No embedding usage reported yet — the host supplies this from its own metering.",
+    );
+  }
+  const remaining = Math.max(0, snap.monthlyTokenLimit - snap.tokensUsed);
+  const quota: ProviderBalance = {
+    ...base("pinecone", "Pinecone embeddings"),
+    checkedAt: snap.capturedAt,
+    detail: snap.exhausted
+      ? `${compactTokens(snap.tokensUsed)} / ${compactTokens(snap.monthlyTokenLimit)} tokens — quota spent, embeddings refused`
+      : `${compactTokens(snap.tokensUsed)} / ${compactTokens(snap.monthlyTokenLimit)} tokens this month`,
+    kind: "quota",
+    limit: snap.monthlyTokenLimit,
+    note: "Counted from the host's own metering — Pinecone exposes no usage API.",
+    remaining,
+    resetDate: snap.resetDate ?? null,
+    status: "ok",
+    unit: "tokens",
+    used: snap.tokensUsed,
+  };
+
+  return quota;
+};
+
 // --- Brave: no API; read the snapshot the host captured off its own calls --
 const braveBalance = (snap: BraveUsageSnapshot | null | undefined) => {
   if (!snap) {
@@ -545,6 +597,9 @@ export const readProviderBalances = async (
   if (config.elevenlabs) jobs.push(elevenLabsBalance(config.elevenlabs));
   if (config.apollo) jobs.push(apolloBalance(config.apollo));
   if ("brave" in config) jobs.push(Promise.resolve(braveBalance(config.brave)));
+  if ("pinecone" in config) {
+    jobs.push(Promise.resolve(pineconeBalance(config.pinecone)));
+  }
   if (config.anthropic) jobs.push(anthropicBalance(config.anthropic));
   if (config.openai) jobs.push(openaiBalance(config.openai));
 

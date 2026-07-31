@@ -390,4 +390,5 @@ export {
   type ProviderBalanceKind,
   type ProviderBalanceStatus,
   type BraveUsageSnapshot,
+  type EmbeddingUsageSnapshot,
 } from "./balances";
