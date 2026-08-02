@@ -1,6 +1,6 @@
 # `@absolutejs/billing`
 
-> Cost-model substrate for the AbsoluteJS PaaS.
+> Provider-neutral pricing and invoice computation used by the hosted AbsoluteJS.ai platform.
 
 `@absolutejs/billing` is the pure-function layer between
 `@absolutejs/metering` (which collects usage events) and an
