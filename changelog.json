@@ -3,6 +3,16 @@
   "name": "@absolutejs/billing",
   "releases": [
     {
+      "version": "0.9.0",
+      "date": "2026-09-11",
+      "changes": [
+        {
+          "kind": "added",
+          "summary": "Add bounded customer billing reports, receipt cursors and reconciled usage projections"
+        }
+      ]
+    },
+    {
       "version": "0.8.0",
       "date": "2026-09-11",
       "changes": [

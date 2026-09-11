@@ -102,3 +102,5 @@ BSL-1.1 with named carveout against hosted SaaS billing platforms
 ## Secure credit checkout
 
 [Purchase-only handoffs](docs/checkout-handoffs.md) provide expiring, single-use browser capabilities without a full login session.
+
+`@absolutejs/billing/reports` provides customer-facing status, receipt pagination, and usage contracts. `parseUsageRange` uses a half-open UTC date interval of at most 90 days (default: the last 30 days including today). Receipt cursors are positions, never authorization: bind every query, reversal join, and cursor to the caller's account. Readers must project through the public helpers, which omit provider costs, payment tokens and vault references. Usage day and feature totals must reconcile exactly; purchased dollars and consumed service credits are different measures. Automatic refill is currently unsupported.
