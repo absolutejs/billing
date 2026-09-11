@@ -98,3 +98,7 @@ BSL-1.1 with named carveout against hosted SaaS billing platforms
 ## Prepaid service credits
 
 [Durable balances, reservations, capped work, and migration rules](docs/prepaid-credits.md) are available through the `prepaid`, `prepaid-postgres`, and `credit-work` subpaths.
+
+## Secure credit checkout
+
+[Purchase-only handoffs](docs/checkout-handoffs.md) provide expiring, single-use browser capabilities without a full login session.

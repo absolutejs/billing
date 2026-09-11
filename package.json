@@ -1,6 +1,6 @@
 {
   "name": "@absolutejs/billing",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Provider-neutral pricing and invoice computation used by the hosted AbsoluteJS.ai platform. Converts metered usage into exact integer-micro line items with tiers and allowances.",
   "repository": {
     "type": "git",
@@ -47,6 +47,11 @@
       "types": "./dist/creditWork.d.ts",
       "import": "./dist/creditWork.js",
       "default": "./dist/creditWork.js"
+    },
+    "./checkout-handoff": {
+      "types": "./dist/checkoutHandoff.d.ts",
+      "import": "./dist/checkoutHandoff.js",
+      "default": "./dist/checkoutHandoff.js"
     }
   },
   "publishConfig": {
@@ -57,10 +62,11 @@
     "README.md",
     "changelog.json",
     "dist",
-    "docs/prepaid-credits.md"
+    "docs/prepaid-credits.md",
+    "docs/checkout-handoffs.md"
   ],
   "scripts": {
-    "build": "rm -rf dist && bun build src/index.ts src/ledger.ts src/prepaid.ts src/prepaidPostgres.ts src/creditWork.ts src/manifest.ts --root ./src --outdir dist --sourcemap --target=bun && tsc --project tsconfig.build.json && absolute-manifest emit",
+    "build": "rm -rf dist && bun build src/index.ts src/ledger.ts src/prepaid.ts src/prepaidPostgres.ts src/creditWork.ts src/checkoutHandoff.ts src/manifest.ts --root ./src --outdir dist --sourcemap --target=bun && tsc --project tsconfig.build.json && absolute-manifest emit",
     "test": "bun test tests/",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write \"./**/*.{ts,json,md}\"",
