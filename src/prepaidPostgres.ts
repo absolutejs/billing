@@ -54,7 +54,7 @@ export const createPostgresCreditAccountStore = (
     initialize: async (accountId, seed) => {
       validateCreditAccount(seed);
       await client.query(
-        `INSERT INTO ${n}.accounts (account_id, state, initial_state) VALUES ($1, $2::jsonb, $2::jsonb) ON CONFLICT DO NOTHING`,
+        `INSERT INTO ${n}.accounts (account_id, state, initial_state) VALUES ($1, $2::text::jsonb, $2::text::jsonb) ON CONFLICT DO NOTHING`,
         [accountId, JSON.stringify(seed)],
       );
     },
@@ -81,12 +81,12 @@ export const createPostgresCreditAccountStore = (
           },
           save: async (operationId, receipt) => {
             await sql.query(
-              `UPDATE ${n}.accounts SET state = $2::jsonb, updated_at = now() WHERE account_id = $1`,
+              `UPDATE ${n}.accounts SET state = $2::text::jsonb, updated_at = now() WHERE account_id = $1`,
               [accountId, JSON.stringify(receipt.account)],
             );
             if (receipt.reservation)
               await sql.query(
-                `INSERT INTO ${n}.reservations (account_id, reservation_id, state) VALUES ($1, $2, $3::jsonb) ON CONFLICT (account_id, reservation_id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()`,
+                `INSERT INTO ${n}.reservations (account_id, reservation_id, state) VALUES ($1, $2, $3::text::jsonb) ON CONFLICT (account_id, reservation_id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()`,
                 [
                   accountId,
                   receipt.reservation.id,
@@ -94,7 +94,7 @@ export const createPostgresCreditAccountStore = (
                 ],
               );
             await sql.query(
-              `INSERT INTO ${n}.operations (account_id, operation_id, receipt) VALUES ($1, $2, $3::jsonb)`,
+              `INSERT INTO ${n}.operations (account_id, operation_id, receipt) VALUES ($1, $2, $3::text::jsonb)`,
               [accountId, operationId, JSON.stringify(receipt)],
             );
           },

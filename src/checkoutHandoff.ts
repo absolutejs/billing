@@ -85,7 +85,7 @@ export const createPostgresCheckoutHandoffs = (
     const id = randomUUID();
     const expiresAt = now() + lifetimeMs;
     await db.query(
-      `INSERT INTO billing_checkout.handoffs(id,account_id,quote,code_hash,expires_at) VALUES ($1,$2,$3::jsonb,$4,$5)`,
+      `INSERT INTO billing_checkout.handoffs(id,account_id,quote,code_hash,expires_at) VALUES ($1,$2,$3::text::jsonb,$4,$5)`,
       [id, accountId, JSON.stringify(quote), hash(code), expiresAt],
     );
     return { id, code, expiresAt };

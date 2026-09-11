@@ -59,7 +59,7 @@ export const createPostgresCreditWork = (
     state: CreditWork,
   ) =>
     sql.query(
-      `UPDATE ${n}.work SET state = $3::jsonb, updated_at = now() WHERE account_id = $1 AND work_id = $2`,
+      `UPDATE ${n}.work SET state = $3::text::jsonb, updated_at = now() WHERE account_id = $1 AND work_id = $2`,
       [accountId, workId, JSON.stringify(state)],
     );
   const ledger = (sql: CreditSql) =>
@@ -114,7 +114,7 @@ export const createPostgresCreditWork = (
           result: null,
         };
         await sql.query(
-          `INSERT INTO ${n}.work (account_id, work_id, state) VALUES ($1, $2, $3::jsonb)`,
+          `INSERT INTO ${n}.work (account_id, work_id, state) VALUES ($1, $2, $3::text::jsonb)`,
           [accountId, workId, JSON.stringify(work)],
         );
         return { fresh: true, work };

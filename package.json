@@ -1,6 +1,6 @@
 {
   "name": "@absolutejs/billing",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Provider-neutral pricing and invoice computation used by the hosted AbsoluteJS.ai platform. Converts metered usage into exact integer-micro line items with tiers and allowances.",
   "repository": {
     "type": "git",
@@ -90,10 +90,11 @@
   ],
   "devDependencies": {
     "@absolutejs/changelog": "^0.6.0",
+    "@electric-sql/pglite": "^0.3.14",
     "@types/bun": "^1.3.14",
+    "postgres": "3.4.9",
     "prettier": "^3.8.3",
-    "typescript": "^5.9.0",
-    "@electric-sql/pglite": "^0.3.14"
+    "typescript": "^5.9.0"
   },
   "dependencies": {
     "@absolutejs/manifest": "^0.9.0",
