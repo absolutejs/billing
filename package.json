@@ -1,6 +1,6 @@
 {
   "name": "@absolutejs/billing",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Provider-neutral pricing and invoice computation used by the hosted AbsoluteJS.ai platform. Converts metered usage into exact integer-micro line items with tiers and allowances.",
   "repository": {
     "type": "git",
@@ -32,6 +32,21 @@
       "default": "./dist/ledger.js",
       "import": "./dist/ledger.js",
       "types": "./dist/ledger.d.ts"
+    },
+    "./prepaid": {
+      "types": "./dist/prepaid.d.ts",
+      "import": "./dist/prepaid.js",
+      "default": "./dist/prepaid.js"
+    },
+    "./prepaid-postgres": {
+      "types": "./dist/prepaidPostgres.d.ts",
+      "import": "./dist/prepaidPostgres.js",
+      "default": "./dist/prepaidPostgres.js"
+    },
+    "./credit-work": {
+      "types": "./dist/creditWork.d.ts",
+      "import": "./dist/creditWork.js",
+      "default": "./dist/creditWork.js"
     }
   },
   "publishConfig": {
@@ -41,10 +56,11 @@
     "CHANGELOG.md",
     "README.md",
     "changelog.json",
-    "dist"
+    "dist",
+    "docs/prepaid-credits.md"
   ],
   "scripts": {
-    "build": "rm -rf dist && bun build src/index.ts src/ledger.ts src/manifest.ts --root ./src --outdir dist --sourcemap --target=bun && tsc --project tsconfig.build.json && absolute-manifest emit",
+    "build": "rm -rf dist && bun build src/index.ts src/ledger.ts src/prepaid.ts src/prepaidPostgres.ts src/creditWork.ts src/manifest.ts --root ./src --outdir dist --sourcemap --target=bun && tsc --project tsconfig.build.json && absolute-manifest emit",
     "test": "bun test tests/",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write \"./**/*.{ts,json,md}\"",
@@ -65,7 +81,8 @@
     "@absolutejs/changelog": "^0.6.0",
     "@types/bun": "^1.3.14",
     "prettier": "^3.8.3",
-    "typescript": "^5.9.0"
+    "typescript": "^5.9.0",
+    "@electric-sql/pglite": "^0.3.14"
   },
   "dependencies": {
     "@absolutejs/manifest": "^0.9.0",

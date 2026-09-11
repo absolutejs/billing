@@ -1,5 +1,16 @@
 {
 	"contract": 1,
 	"name": "@absolutejs/billing",
-	"releases": []
+	"releases": [
+		{
+			"changes": [
+				{
+					"kind": "added",
+					"summary": "Add durable prepaid credit accounts, reservations, and capped idempotent work settlement"
+				}
+			],
+			"date": "2026-09-11",
+			"version": "0.7.0"
+		}
+	]
 }

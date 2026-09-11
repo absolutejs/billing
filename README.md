@@ -94,3 +94,7 @@ mailed-PDF generator) lives outside this package, in
 BSL-1.1 with named carveout against hosted SaaS billing platforms
 (Metronome, Orb, Lago, Stripe Billing, m3ter, Chargebee). See
 `LICENSE`. Change date: **2030-05-31** → Apache 2.0.
+
+## Prepaid service credits
+
+[Durable balances, reservations, capped work, and migration rules](docs/prepaid-credits.md) are available through the `prepaid`, `prepaid-postgres`, and `credit-work` subpaths.
