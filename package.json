@@ -1,6 +1,6 @@
 {
   "name": "@absolutejs/billing",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "Provider-neutral pricing and invoice computation used by the hosted AbsoluteJS.ai platform. Converts metered usage into exact integer-micro line items with tiers and allowances.",
   "repository": {
     "type": "git",
@@ -57,7 +57,13 @@
       "types": "./dist/reports.d.ts",
       "import": "./dist/reports.js",
       "default": "./dist/reports.js"
-    }
+    },
+    "./credit-purchase": {
+      "types": "./dist/creditPurchase.d.ts",
+      "import": "./dist/creditPurchase.js",
+      "default": "./dist/creditPurchase.js"
+    },
+    "./vue/CreditAmountPicker.vue": "./vue/CreditAmountPicker.vue"
   },
   "publishConfig": {
     "access": "public"
@@ -68,10 +74,11 @@
     "changelog.json",
     "dist",
     "docs/prepaid-credits.md",
-    "docs/checkout-handoffs.md"
+    "docs/checkout-handoffs.md",
+    "vue"
   ],
   "scripts": {
-    "build": "rm -rf dist && bun build src/index.ts src/ledger.ts src/prepaid.ts src/prepaidPostgres.ts src/creditWork.ts src/checkoutHandoff.ts src/reports.ts src/manifest.ts --root ./src --outdir dist --sourcemap --target=bun && tsc --project tsconfig.build.json && absolute-manifest emit",
+    "build": "rm -rf dist && bun build src/index.ts src/ledger.ts src/prepaid.ts src/prepaidPostgres.ts src/creditWork.ts src/creditPurchase.ts src/checkoutHandoff.ts src/reports.ts src/manifest.ts --root ./src --outdir dist --sourcemap --target=bun && tsc --project tsconfig.build.json && absolute-manifest emit",
     "test": "bun test tests/",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write \"./**/*.{ts,json,md}\"",
@@ -102,5 +109,13 @@
   },
   "absolutejs": {
     "manifestContract": 2
+  },
+  "peerDependencies": {
+    "vue": "^3.5.0"
+  },
+  "peerDependenciesMeta": {
+    "vue": {
+      "optional": true
+    }
   }
 }

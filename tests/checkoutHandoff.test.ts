@@ -84,3 +84,29 @@ test("only trusted HTTPS landings and explicit same-origin POSTs", () => {
   ])
     expect(checkoutSameOrigin(request, "https://shop.test")).toBe(false);
 });
+
+test("changing amount retires the old reference; payment and selection serialize", async () => {
+  const pg = new PGlite();
+  await pg.exec(checkoutHandoffPostgresSchemaSql());
+  const db: CreditSqlClient = {
+    query: (text, values) => pg.query(text, [...values]),
+    transaction: run => pg.transaction(tx => run({ query: (text, values) => tx.query(text, [...values]) })),
+  };
+  const store = createPostgresCheckoutHandoffs(db);
+  const issued = await store.issue("alice", quote);
+  const exchanged = (await store.exchange(issued.code, "alice"))!;
+  const larger = { ...quote, productId: "custom-5000", amountCents: 5000, credits: 5500 };
+  expect(await store.selectQuote(exchanged.session, exchanged.csrf, issued.id, larger, "bob")).toBeNull();
+  const selected = (await store.selectQuote(exchanged.session, exchanged.csrf, issued.id, larger, "alice"))!;
+  expect(selected.id).not.toBe(issued.id);
+  expect(selected.quote).toEqual(larger);
+  expect(await store.current("alice", issued.id)).toMatchObject({ id: selected.id, quote: larger });
+  expect(await store.current("bob", issued.id)).toBeNull();
+  expect(await store.exchange(issued.code, "alice")).toBeNull();
+  expect(await store.lockPayment(exchanged.session, exchanged.csrf, issued.id, "alice")).toBeNull();
+  expect(await store.selectQuote(exchanged.session, exchanged.csrf, issued.id, quote, "alice")).toBeNull();
+  expect(await store.lockPayment(exchanged.session, exchanged.csrf, selected.id, "alice")).toMatchObject({ paymentLocked: true, quote: larger });
+  expect(await store.selectQuote(exchanged.session, exchanged.csrf, selected.id, quote, "alice")).toBeNull();
+  expect(await store.lockPayment(exchanged.session, exchanged.csrf, selected.id, "alice")).toMatchObject({ id: selected.id, quote: larger });
+  await pg.close();
+});

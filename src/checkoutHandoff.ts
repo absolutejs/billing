@@ -12,6 +12,8 @@ export type CheckoutHandoff = {
   accountId: string;
   quote: CheckoutQuote;
   expiresAt: number;
+  paymentLocked: boolean;
+  replacedBy: string | null;
 };
 const lifetimeMs = 15 * 60 * 1000;
 const hash = (secret: string) =>
@@ -36,6 +38,8 @@ CREATE TABLE IF NOT EXISTS billing_checkout.handoffs (
  code_hash text NOT NULL UNIQUE, expires_at bigint NOT NULL,
  session_hash text UNIQUE, csrf_hash text, session_expires_at bigint
 );
+ALTER TABLE billing_checkout.handoffs ADD COLUMN IF NOT EXISTS payment_locked boolean NOT NULL DEFAULT false;
+ALTER TABLE billing_checkout.handoffs ADD COLUMN IF NOT EXISTS replaced_by text;
 CREATE INDEX IF NOT EXISTS handoffs_account ON billing_checkout.handoffs(account_id, id);
 `;
 const decode = (
@@ -70,6 +74,8 @@ const decode = (
     accountId: row.account_id,
     quote: parsed,
     expiresAt: Number(row.expires_at),
+    paymentLocked: row.payment_locked === true,
+    replacedBy: typeof row.replaced_by === "string" ? row.replaced_by : null,
   };
 };
 /** This is a purchase-only capability, never a login or a saved-card authorization.
@@ -110,6 +116,41 @@ export const createPostgresCheckoutHandoffs = (
     );
     const handoff = decode(rows[0]);
     return handoff ? { handoff, session, csrf, expiresAt } : null;
+  },
+  /** Price changes create a new reference and retire the old capability atomically.
+   * The server computes quote; the browser supplies only its selected amount. */
+  async selectQuote(session: string, csrf: string, expectedId: string, quote: CheckoutQuote, browserAccountId: string | null = null) {
+    if (!validSecret(session) || !validSecret(csrf) || !validQuote(quote)) return null;
+    return db.transaction(async tx => {
+      const { rows } = await tx.query(
+        `SELECT * FROM billing_checkout.handoffs WHERE id=$1 AND session_hash=$2 AND csrf_hash=$3 AND session_expires_at>$4 AND payment_locked=false AND ($5::text IS NULL OR account_id=$5) FOR UPDATE`,
+        [expectedId, hash(session), hash(csrf), now(), browserAccountId]);
+      const row = rows[0];
+      const old = decode(row);
+      if (!row || !old) return null;
+      const id = randomUUID();
+      await tx.query(`UPDATE billing_checkout.handoffs SET session_hash=NULL,csrf_hash=NULL,session_expires_at=0,expires_at=0,payment_locked=true,replaced_by=$2 WHERE id=$1`, [old.id, id]);
+      const created = await tx.query(
+        `INSERT INTO billing_checkout.handoffs(id,account_id,quote,code_hash,expires_at,session_hash,csrf_hash,session_expires_at) VALUES ($1,$2,$3::text::jsonb,$4,$5,$6,$7,$5) RETURNING *`,
+        [id, old.accountId, JSON.stringify(quote), hash(secret()), row.session_expires_at, hash(session), hash(csrf)]);
+      return decode(created.rows[0]);
+    });
+  },
+  /** Freeze the exact reference before an external payment request. Repeated
+   * calls can reconcile that same payment, but can never change its quote. */
+  async lockPayment(session: string, csrf: string, expectedId: string, browserAccountId: string | null = null) {
+    if (!validSecret(session) || !validSecret(csrf)) return null;
+    const { rows } = await db.query(
+      `UPDATE billing_checkout.handoffs SET payment_locked=true WHERE id=$1 AND session_hash=$2 AND csrf_hash=$3 AND session_expires_at>$4 AND ($5::text IS NULL OR account_id=$5) RETURNING *`,
+      [expectedId, hash(session), hash(csrf), now(), browserAccountId]);
+    return decode(rows[0]);
+  },
+  /** Original assistant references follow amount changes without granting access
+   * to another account. Limit traversal so corrupt/cyclic history fails closed. */
+  async current(accountId: string, id: string) {
+    const { rows } = await db.query(
+      `WITH RECURSIVE chain AS (SELECT h.*,0 AS depth FROM billing_checkout.handoffs h WHERE h.id=$1 AND h.account_id=$2 UNION ALL SELECT h.*,c.depth+1 FROM billing_checkout.handoffs h JOIN chain c ON h.id=c.replaced_by WHERE h.account_id=$2 AND c.depth<100) SELECT * FROM chain WHERE replaced_by IS NULL LIMIT 1`, [id, accountId]);
+    return decode(rows[0]);
   },
   async authorize(
     session: string,

@@ -6,6 +6,24 @@
 			"changes": [
 				{
 					"kind": "added",
+					"summary": "Add shared credit amount slider and presets with canonical pricing and atomic checkout quote replacement and payment locking.",
+					"symbols": [
+						"CheckoutHandoff",
+						"createPostgresCheckoutHandoffs",
+						"checkoutHandoffPostgresSchemaSql",
+						"CreditPurchaseCatalog",
+						"CreditPurchasePreset",
+						"quoteCreditAmount"
+					]
+				}
+			],
+			"date": "2026-09-13",
+			"version": "0.13.0"
+		},
+		{
+			"changes": [
+				{
+					"kind": "added",
 					"summary": "Add estimate-based background work admission while preserving exact-ID recovery and hard charge caps.",
 					"symbols": [
 						"CreditWork",

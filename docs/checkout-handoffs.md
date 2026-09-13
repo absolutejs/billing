@@ -7,3 +7,26 @@ Deliver `checkoutHandoffUrl(httpsLandingUrl, code)` only on permitted host chann
 The limited session reveals only its fixed quote and purchase status. It cannot read profile, balance history, receipts, saved cards, or subscribe. Payment requires a new provider-hosted token and explicit user confirmation of the exact quote. Bind the gateway operation ID to the handoff ID; reuse the existing durable reserve/charge/recover/grant service. Never retry uncertain charges with new IDs. A status read is not a gateway operation. Account deletion/revocation remains the consumer's responsibility on issue and use. Retain financial records; expired unused handoffs may be removed by an operator's retention policy.
 
 Host approval and supported UI are independent. MCP form elicitation must not collect payment credentials; use an approved external browser interaction. The handoff alone does not approve a commerce channel. Sources: https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation and the MCP package `docs/commerce-host-rules.md`.
+
+
+## Amount selection and payment locking
+
+`selectQuote(session, csrf, expectedId, serverQuote, browserAccountId)` atomically
+replaces an unpaid quote with a new purchase reference, retaining the original
+session expiry. It retires the old link/session binding; stale tabs fail instead
+of changing another quote. The server must derive the amount and grant from its
+canonical catalog. Browser slider values are never authoritative prices.
+
+Call `lockPayment` with the exact current reference before dispatching payment.
+After that point, amount changes are blocked, including while the gateway outcome
+is uncertain. Repeated calls may reconcile the same reference, never change its
+amount. `current(accountId, originalId)` follows quote replacements so assistant
+status recovery continues to work. Apply the additive schema before using these
+methods; it adds payment locking and replacement references without deleting history.
+
+`@absolutejs/billing/credit-purchase` supplies canonical integer quotes;
+`@absolutejs/billing/vue/CreditAmountPicker.vue` is an optional Vue 3.5 component
+with a numeric input, keyboard-accessible slider, preset buttons and bonus preview.
+Pass the same catalog to server pricing and UI. Consumers provide amounts, labels,
+and their CSS theme variables. Changing selection is not payment authorization:
+reset confirmation and remount payment collection with the new reference.
