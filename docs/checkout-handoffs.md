@@ -30,3 +30,8 @@ with a numeric input, keyboard-accessible slider, preset buttons and bonus previ
 Pass the same catalog to server pricing and UI. Consumers provide amounts, labels,
 and their CSS theme variables. Changing selection is not payment authorization:
 reset confirmation and remount payment collection with the new reference.
+
+For production Vue builds, import `@absolutejs/billing/vue/CreditAmountPicker`
+and include `@absolutejs/billing/vue/credit-amount-picker.css` in the application
+stylesheet. This universal render module works with SSR and hydration without
+requiring the host compiler to transform package-owned `.vue` source.

@@ -3,6 +3,16 @@
 	"name": "@absolutejs/billing",
 	"releases": [
 		{
+			"version": "0.13.1",
+			"date": "2026-09-13",
+			"changes": [
+				{
+					"kind": "fixed",
+					"summary": "Ship a precompiled universal Vue credit picker and scoped CSS so consumers do not compile package SFCs into colliding client/server output paths."
+				}
+			]
+		},
+		{
 			"changes": [
 				{
 					"kind": "added",
