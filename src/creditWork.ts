@@ -8,7 +8,16 @@ export type DeferredCreditBinding = {
   effectId: string;
   authorizationId: string;
 };
+/** Trusted server-side admission policy, evaluated only for a new claim.
+ * This is an estimate-based floor, not a provider-cost guarantee or authorization. */
+export type CreditWorkAdmission = { minimumCredits: number; policy: string };
+export const canAffordCreditStep = (budget: number, charged: number, minimumCredits: number) => {
+  if (![budget, charged, minimumCredits].every(Number.isSafeInteger) || budget < 1 || charged < 0 || charged > budget || minimumCredits < 1)
+    throw new Error("Invalid credit step budget");
+  return budget - charged >= minimumCredits;
+};
 export type CreditWork = {
+  admission?: CreditWorkAdmission;
   deferred?: DeferredCreditBinding;
   checkpoint?: { revision: number; value: string };
   request: string;
@@ -224,6 +233,7 @@ export const createPostgresCreditWork = (
       workId: string,
       request: string,
       budget: number,
+      admit?: () => Promise<CreditWorkAdmission>,
     ) => {
       id(accountId);
       id(workId);
@@ -242,12 +252,20 @@ export const createPostgresCreditWork = (
             throw new Error("Credit work ID reused with different input");
           return { fresh: false, work: existing };
         }
+        const admission = admit ? await admit() : undefined;
+        if (admission) {
+          if (typeof admission.policy !== "string" || !admission.policy || admission.policy.length > 256)
+            throw new Error("Invalid credit admission policy");
+          if (!canAffordCreditStep(budget, 0, admission.minimumCredits))
+            throw new Error(`This work requires at least ${admission.minimumCredits} service credits. No credits reserved; request a new estimate and user-approved budget.`);
+        }
         await ledger(sql).execute(accountId, `work-reserve:${workId}`, {
           kind: "reserve",
           reservationId: `work:${workId}`,
           credits: budget,
         });
         const work: CreditWork = {
+          ...(admission ? { admission: { minimumCredits: admission.minimumCredits, policy: admission.policy } } : {}),
           request,
           budget,
           charged: 0,

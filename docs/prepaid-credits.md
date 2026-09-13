@@ -56,3 +56,18 @@ Charges remain capped at the approved budget; overruns are absorbed. Unused
 credits are released only on definite settlement. An unknown external outcome
 requires the application's audited reconciliation process before settlement or
 any replacement action. No automatic expiry release is safe for an uncertain send.
+
+### Minimum-budget admission
+
+Pass a trusted async fifth argument to `begin` returning `{ minimumCredits,
+policy }`. It runs under the account lock only for a new work ID, before any
+reservation. Rejecting or unavailable pricing rolls back without a claim. Exact
+replays still validate the original input and budget, but never call admission.
+Keep admission local and quick; do not call a provider while holding this lock.
+
+The policy is persisted in `work.admission`. Workers can use
+`canAffordCreditStep(budget, charged, minimumCredits)` after draining usage and
+before marking a new provider step in flight. Use a conservative current estimate
+and the persisted floor; stop with saved partial results when it no longer fits.
+An estimate is not an authorization, guaranteed price, or provider-spend ceiling.
+The explicit charge cap and absorbed overrun accounting still apply.

@@ -457,3 +457,26 @@ test("bound checkpoint CAS survives restart without changing the credit reservat
   expect((await work.get("checkpoints", "job"))?.checkpoint).toEqual({ revision: 2, value: "completed first step" });
   expect(await ledger.balance("checkpoints")).toMatchObject({ reserved: 0, consumed: 7, purchasedRemaining: 93 });
 });
+
+test("new work admission is atomic and exact recovery never reevaluates policy", async () => {
+  const { createPostgresCreditWork, creditWorkPostgresSchemaSql, canAffordCreditStep } = await import("../src/creditWork");
+  await db.exec(creditWorkPostgresSchemaSql());
+  await ledger.initialize("admission", seed());
+  const work = createPostgresCreditWork(client);
+  let evaluations = 0;
+  const admit = async () => { evaluations++; return { minimumCredits: 20, policy: "test-v1" }; };
+  await expect(work.begin("admission", "small", "plan", 1, admit)).rejects.toThrow("at least 20");
+  expect(await work.get("admission", "small")).toBeNull();
+  expect((await ledger.balance("admission"))!.reserved).toBe(0);
+  const first = await work.begin("admission", "fits", "plan", 20, admit);
+  expect(first.work.admission).toEqual({ minimumCredits: 20, policy: "test-v1" });
+  const unavailable = async (): Promise<never> => { throw new Error("pricing unavailable"); };
+  expect((await work.begin("admission", "fits", "plan", 20, unavailable)).fresh).toBe(false);
+  await expect(work.begin("admission", "fits", "changed", 20, unavailable)).rejects.toThrow("different input");
+  expect(evaluations).toBe(2);
+  expect(canAffordCreditStep(40, 20, 20)).toBe(true);
+  expect(canAffordCreditStep(40, 21, 20)).toBe(false);
+  expect(() => canAffordCreditStep(40, 0, NaN)).toThrow();
+  await expect(work.begin("admission", "missing", "plan", 20, unavailable)).rejects.toThrow("pricing unavailable");
+  expect((await ledger.balance("admission"))!.reserved).toBe(20);
+});
