@@ -33,3 +33,26 @@ Dry-run all accounts, compare current availability before and after, and separat
 Version 0.9.1 binds serialized JSON through `::text::jsonb`. Direct postgres.js infers JSON parameters and otherwise JSON-encodes strings a second time; adapters such as Drizzle override that serializer, which can hide the defect in adapter-only tests. This applies to account state, immutable operation receipts, reservations, work records and checkout quotes.
 
 For a real-driver regression, set `BILLING_TEST_DATABASE_URL` to a test database and run `bun test tests/postgresJson.test.ts`. It creates and removes a unique schema containing only synthetic records. The ordinary suite skips this test when the database is absent. Existing double-encoded rows need a separately reviewed repair; updating the package does not rewrite financial records. Preserve originals and verify semantic value equality before committing any repair.
+
+## Deferred worker handoff
+
+`createPostgresCreditWork` supports `handoff`, `resumeDeferred` and
+`finishDeferred`. Bind an account-owned work reservation to the exact durable
+`effectId` and immutable `authorizationId`. Call `begin`, `handoff` and the outbox
+insert using one application transaction (a transaction-bound SQL client).
+Approval must bind the reviewed input and explicit maximum credits before enqueue.
+These methods reuse the existing JSON work state; no new DDL is required.
+
+A worker must hold its execution claim and validate account, effect and action
+identity before `resumeDeferred`. Restore the saved budget and charged amount in
+its metering context. Reattachment grants no provider authorization, lease or
+retry permission. Drain every usage write before finishing. Settle only a durable
+`succeeded` or definite terminal `failed` outcome. `unknown`, metering uncertainty,
+and nonterminal retries retain the reservation. Recovery of a completed effect
+may retry settlement, never execution. `finish` refuses transferred work;
+`finishDeferred` validates its binding even for repeated terminal calls.
+
+Charges remain capped at the approved budget; overruns are absorbed. Unused
+credits are released only on definite settlement. An unknown external outcome
+requires the application's audited reconciliation process before settlement or
+any replacement action. No automatic expiry release is safe for an uncertain send.

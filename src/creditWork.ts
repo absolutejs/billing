@@ -4,7 +4,12 @@ import {
   type CreditSql,
   type CreditSqlClient,
 } from "./prepaidPostgres";
+export type DeferredCreditBinding = {
+  effectId: string;
+  authorizationId: string;
+};
 export type CreditWork = {
+  deferred?: DeferredCreditBinding;
   request: string;
   budget: number;
   charged: number;
@@ -69,7 +74,117 @@ export const createPostgresCreditWork = (
         schema,
       ),
     );
+  const bindingMatches = (work: CreditWork, binding: DeferredCreditBinding) => {
+    id(binding.effectId);
+    id(binding.authorizationId);
+    if (
+      work.deferred?.effectId !== binding.effectId ||
+      work.deferred.authorizationId !== binding.authorizationId
+    )
+      throw new Error("Deferred credit authorization mismatch");
+  };
+  const finish = (
+    accountId: string,
+    workId: string,
+    result: string,
+    failed: boolean,
+    binding?: DeferredCreditBinding,
+  ) => {
+    id(accountId);
+    id(workId);
+    return client.transaction(async (sql) => {
+      await sql.query(
+        `SELECT account_id FROM ${n}.accounts WHERE account_id = $1 FOR UPDATE`,
+        [accountId],
+      );
+      const work = await read(sql, accountId, workId);
+      if (!work) throw new Error("Credit work does not exist");
+      if (binding) bindingMatches(work, binding);
+      else if (work.deferred)
+        throw new Error("Deferred work requires its bound worker outcome");
+      if (work.status !== "running") return work;
+      await ledger(sql).execute(accountId, `work-settle:${workId}`, {
+        kind: "settle",
+        reservationId: `work:${workId}`,
+        credits: work.charged,
+      });
+      work.status = failed ? "failed" : "completed";
+      work.result = result;
+      await save(sql, accountId, workId, work);
+      return work;
+    });
+  };
   return {
+    /** Call inside the same transaction as begin, authorization binding and outbox
+     * enqueue. This transfers a reservation, never starts work or grants a lease. */
+    handoff: (
+      accountId: string,
+      workId: string,
+      binding: DeferredCreditBinding,
+    ) => {
+      id(accountId);
+      id(workId);
+      id(binding.effectId);
+      id(binding.authorizationId);
+      return client.transaction(async (sql) => {
+        const work = await read(sql, accountId, workId);
+        if (!work) throw new Error("Credit work does not exist");
+        if (work.deferred) {
+          bindingMatches(work, binding);
+          return work;
+        }
+        if (work.status !== "running")
+          throw new Error("Credit work already finished");
+        work.deferred = {
+          effectId: binding.effectId,
+          authorizationId: binding.authorizationId,
+        };
+        await save(sql, accountId, workId, work);
+        return work;
+      });
+    },
+    /** Trusted worker reattaches accounting after its durable execution claim.
+     * This is NOT execution authorization or permission to retry a provider. */
+    resumeDeferred: (
+      accountId: string,
+      workId: string,
+      binding: DeferredCreditBinding,
+    ) => {
+      id(accountId);
+      id(workId);
+      return client.transaction(async (sql) => {
+        const work = await read(sql, accountId, workId);
+        if (!work) throw new Error("Credit work does not exist");
+        bindingMatches(work, binding);
+        return work;
+      });
+    },
+    /** Settle only a durable terminal result after all usage writes are drained.
+     * Unknown outcomes keep credits reserved and require operator reconciliation. */
+    finishDeferred: async (
+      accountId: string,
+      workId: string,
+      binding: DeferredCreditBinding,
+      outcome: "succeeded" | "failed" | "unknown",
+      result: string,
+    ) => {
+      if (
+        outcome !== "succeeded" &&
+        outcome !== "failed" &&
+        outcome !== "unknown"
+      )
+        throw new Error("Invalid deferred outcome");
+      if (outcome !== "unknown")
+        return finish(accountId, workId, result, outcome === "failed", binding);
+      id(accountId);
+      id(workId);
+      return client.transaction(async (sql) => {
+        const work = await read(sql, accountId, workId);
+        if (!work) throw new Error("Credit work does not exist");
+        bindingMatches(work, binding);
+        return work;
+      });
+    },
     get: (accountId: string, workId: string) => {
       id(accountId);
       id(workId);
@@ -168,28 +283,6 @@ export const createPostgresCreditWork = (
       workId: string,
       result: string,
       failed = false,
-    ) => {
-      id(accountId);
-      id(workId);
-      return client.transaction(async (sql) => {
-        // Match begin's account -> work lock order to avoid a retry/finalize deadlock.
-        await sql.query(
-          `SELECT account_id FROM ${n}.accounts WHERE account_id = $1 FOR UPDATE`,
-          [accountId],
-        );
-        const work = await read(sql, accountId, workId);
-        if (!work) throw new Error("Credit work does not exist");
-        if (work.status !== "running") return work;
-        await ledger(sql).execute(accountId, `work-settle:${workId}`, {
-          kind: "settle",
-          reservationId: `work:${workId}`,
-          credits: work.charged,
-        });
-        work.status = failed ? "failed" : "completed";
-        work.result = result;
-        await save(sql, accountId, workId, work);
-        return work;
-      });
-    },
+    ) => finish(accountId, workId, result, failed),
   };
 };

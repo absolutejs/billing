@@ -3,34 +3,49 @@
   "name": "@absolutejs/billing",
   "releases": [
     {
-      "version": "0.9.1",
-      "date": "2026-09-11",
+      "changes": [
+        {
+          "kind": "added",
+          "summary": "Transfer reserved credit work to immutable deferred effect authorizations and settle only bound terminal outcomes",
+          "symbols": [
+            "CreditWork",
+            "DeferredCreditBinding",
+            "createPostgresCreditWork"
+          ]
+        }
+      ],
+      "date": "2026-09-13",
+      "version": "0.10.0"
+    },
+    {
       "changes": [
         {
           "kind": "fixed",
           "summary": "Bind serialized ledger, work and checkout JSON as text before casting, preventing PostgreSQL drivers from double-encoding state"
         }
-      ]
+      ],
+      "date": "2026-09-11",
+      "version": "0.9.1"
     },
     {
-      "version": "0.9.0",
-      "date": "2026-09-11",
       "changes": [
         {
           "kind": "added",
           "summary": "Add bounded customer billing reports, receipt cursors and reconciled usage projections"
         }
-      ]
+      ],
+      "date": "2026-09-11",
+      "version": "0.9.0"
     },
     {
-      "version": "0.8.0",
-      "date": "2026-09-11",
       "changes": [
         {
           "kind": "added",
           "summary": "Add single-use purchase-only checkout handoffs with hashed capabilities, account binding and CSRF verification"
         }
-      ]
+      ],
+      "date": "2026-09-11",
+      "version": "0.8.0"
     },
     {
       "changes": [

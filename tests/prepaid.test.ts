@@ -337,3 +337,94 @@ test("a funded non-subscriber gets MCP access without portal access", async () =
     }),
   ).toEqual({ portal: true, mcp: "member" });
 });
+
+test("deferred reservation survives handoff, restart and unknown outcome with immutable ownership", async () => {
+  const { createPostgresCreditWork, creditWorkPostgresSchemaSql } =
+    await import("../src/creditWork");
+  await db.exec(creditWorkPostgresSchemaSql());
+  await ledger.initialize("deferred", seed());
+  const binding = { effectId: "effect", authorizationId: "approved-version" };
+  await expect(
+    client.transaction(async (sql) => {
+      const work = createPostgresCreditWork({
+        ...sql,
+        transaction: (run) => run(sql),
+      });
+      await work.begin("deferred", "job", "review", 40);
+      await work.handoff("deferred", "job", binding);
+      throw Error("outbox insert failed");
+    }),
+  ).rejects.toThrow("outbox");
+  expect((await ledger.balance("deferred"))?.reserved).toBe(0);
+  const work = createPostgresCreditWork(client);
+  expect(await work.get("deferred", "job")).toBeNull();
+  await client.transaction(async (sql) => {
+    const tx = createPostgresCreditWork({
+      ...sql,
+      transaction: (run) => run(sql),
+    });
+    await tx.begin("deferred", "job", "review", 40);
+    await tx.handoff("deferred", "job", binding);
+  });
+  await expect(
+    work.finish("deferred", "job", "wrong immediate finish"),
+  ).rejects.toThrow("bound worker");
+  await expect(
+    work.handoff("deferred", "job", { ...binding, authorizationId: "other" }),
+  ).rejects.toThrow("mismatch");
+  await expect(
+    work.resumeDeferred("other-account", "job", binding),
+  ).rejects.toThrow("does not exist");
+  await expect(
+    work.resumeDeferred("deferred", "job", { ...binding, effectId: "other" }),
+  ).rejects.toThrow("mismatch");
+  await work.record("deferred", "job", "event", 10, "usage");
+  const restarted = createPostgresCreditWork(client);
+  expect(
+    await restarted.resumeDeferred("deferred", "job", binding),
+  ).toMatchObject({ budget: 40, charged: 10, status: "running" });
+  await restarted.finishDeferred(
+    "deferred",
+    "job",
+    binding,
+    "unknown",
+    "uncertain",
+  );
+  expect((await ledger.balance("deferred"))?.reserved).toBe(40);
+  await work.record("deferred", "job", "event", 10, "usage");
+  await work.record("deferred", "job", "second", 50, "more");
+  expect(
+    await restarted.finishDeferred(
+      "deferred",
+      "job",
+      binding,
+      "succeeded",
+      "saved result",
+    ),
+  ).toMatchObject({ charged: 40, absorbed: 20, status: "completed" });
+  await restarted.finishDeferred(
+    "deferred",
+    "job",
+    binding,
+    "succeeded",
+    "duplicate",
+  );
+  expect(await ledger.balance("deferred")).toMatchObject({
+    reserved: 0,
+    purchasedRemaining: 60,
+    debt: 0,
+    consumed: 40,
+  });
+  expect(
+    (await restarted.resumeDeferred("deferred", "job", binding)).result,
+  ).toBe("saved result");
+  await expect(
+    restarted.finishDeferred(
+      "deferred",
+      "job",
+      { ...binding, authorizationId: "other" },
+      "succeeded",
+      "bad",
+    ),
+  ).rejects.toThrow("mismatch");
+});
