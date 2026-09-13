@@ -428,3 +428,32 @@ test("deferred reservation survives handoff, restart and unknown outcome with im
     ),
   ).rejects.toThrow("mismatch");
 });
+
+
+test("bound checkpoint CAS survives restart without changing the credit reservation", async () => {
+  const { createPostgresCreditWork, creditWorkPostgresSchemaSql } = await import("../src/creditWork");
+  await db.exec(creditWorkPostgresSchemaSql());
+  await ledger.initialize("checkpoints", seed());
+  const work = createPostgresCreditWork(client);
+  const binding = { effectId: "research", authorizationId: "immutable-plan" };
+  await work.begin("checkpoints", "job", "plan", 20);
+  await work.handoff("checkpoints", "job", binding);
+  const races = await Promise.allSettled([
+    work.checkpointDeferred("checkpoints", "job", binding, 0, "first"),
+    work.checkpointDeferred("checkpoints", "job", binding, 0, "second"),
+  ]);
+  expect(races.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+  const restarted = createPostgresCreditWork(client);
+  expect((await restarted.get("checkpoints", "job"))?.checkpoint?.revision).toBe(1);
+  await expect(work.checkpointDeferred("another-account", "job", binding, 1, "bad")).rejects.toThrow("does not exist");
+  await expect(work.checkpointDeferred("checkpoints", "job", { ...binding, effectId: "other" }, 1, "bad")).rejects.toThrow("mismatch");
+  await work.record("checkpoints", "job", "usage", 7, "step");
+  await work.checkpointDeferred("checkpoints", "job", binding, 1, "completed first step");
+  await work.finishDeferred("checkpoints", "job", binding, "unknown", "uncertain");
+  expect((await ledger.balance("checkpoints"))?.reserved).toBe(20);
+  expect((await work.get("checkpoints", "job"))?.charged).toBe(7);
+  await work.finishDeferred("checkpoints", "job", binding, "succeeded", "result");
+  await expect(work.checkpointDeferred("checkpoints", "job", binding, 2, "late writer")).rejects.toThrow("already finished");
+  expect((await work.get("checkpoints", "job"))?.checkpoint).toEqual({ revision: 2, value: "completed first step" });
+  expect(await ledger.balance("checkpoints")).toMatchObject({ reserved: 0, consumed: 7, purchasedRemaining: 93 });
+});

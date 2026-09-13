@@ -1,61 +1,75 @@
 {
-  "contract": 1,
-  "name": "@absolutejs/billing",
-  "releases": [
-    {
-      "changes": [
-        {
-          "kind": "added",
-          "summary": "Transfer reserved credit work to immutable deferred effect authorizations and settle only bound terminal outcomes",
-          "symbols": [
-            "CreditWork",
-            "DeferredCreditBinding",
-            "createPostgresCreditWork"
-          ]
-        }
-      ],
-      "date": "2026-09-13",
-      "version": "0.10.0"
-    },
-    {
-      "changes": [
-        {
-          "kind": "fixed",
-          "summary": "Bind serialized ledger, work and checkout JSON as text before casting, preventing PostgreSQL drivers from double-encoding state"
-        }
-      ],
-      "date": "2026-09-11",
-      "version": "0.9.1"
-    },
-    {
-      "changes": [
-        {
-          "kind": "added",
-          "summary": "Add bounded customer billing reports, receipt cursors and reconciled usage projections"
-        }
-      ],
-      "date": "2026-09-11",
-      "version": "0.9.0"
-    },
-    {
-      "changes": [
-        {
-          "kind": "added",
-          "summary": "Add single-use purchase-only checkout handoffs with hashed capabilities, account binding and CSRF verification"
-        }
-      ],
-      "date": "2026-09-11",
-      "version": "0.8.0"
-    },
-    {
-      "changes": [
-        {
-          "kind": "added",
-          "summary": "Add durable prepaid credit accounts, reservations, and capped idempotent work settlement"
-        }
-      ],
-      "date": "2026-09-11",
-      "version": "0.7.0"
-    }
-  ]
+	"contract": 1,
+	"name": "@absolutejs/billing",
+	"releases": [
+		{
+			"changes": [
+				{
+					"kind": "changed",
+					"summary": "Add bound compare-and-swap checkpoints for deferred credit work without releasing reserved credits.",
+					"symbols": [
+						"CreditWork",
+						"createPostgresCreditWork"
+					]
+				}
+			],
+			"date": "2026-09-13",
+			"version": "0.11.0"
+		},
+		{
+			"changes": [
+				{
+					"kind": "added",
+					"summary": "Transfer reserved credit work to immutable deferred effect authorizations and settle only bound terminal outcomes",
+					"symbols": [
+						"CreditWork",
+						"DeferredCreditBinding",
+						"createPostgresCreditWork"
+					]
+				}
+			],
+			"date": "2026-09-13",
+			"version": "0.10.0"
+		},
+		{
+			"changes": [
+				{
+					"kind": "fixed",
+					"summary": "Bind serialized ledger, work and checkout JSON as text before casting, preventing PostgreSQL drivers from double-encoding state"
+				}
+			],
+			"date": "2026-09-11",
+			"version": "0.9.1"
+		},
+		{
+			"changes": [
+				{
+					"kind": "added",
+					"summary": "Add bounded customer billing reports, receipt cursors and reconciled usage projections"
+				}
+			],
+			"date": "2026-09-11",
+			"version": "0.9.0"
+		},
+		{
+			"changes": [
+				{
+					"kind": "added",
+					"summary": "Add single-use purchase-only checkout handoffs with hashed capabilities, account binding and CSRF verification"
+				}
+			],
+			"date": "2026-09-11",
+			"version": "0.8.0"
+		},
+		{
+			"changes": [
+				{
+					"kind": "added",
+					"summary": "Add durable prepaid credit accounts, reservations, and capped idempotent work settlement"
+				}
+			],
+			"date": "2026-09-11",
+			"version": "0.7.0"
+		}
+	]
 }

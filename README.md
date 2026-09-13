@@ -104,3 +104,16 @@ BSL-1.1 with named carveout against hosted SaaS billing platforms
 [Purchase-only handoffs](docs/checkout-handoffs.md) provide expiring, single-use browser capabilities without a full login session.
 
 `@absolutejs/billing/reports` provides customer-facing status, receipt pagination, and usage contracts. `parseUsageRange` uses a half-open UTC date interval of at most 90 days (default: the last 30 days including today). Receipt cursors are positions, never authorization: bind every query, reversal join, and cursor to the caller's account. Readers must project through the public helpers, which omit provider costs, payment tokens and vault references. Usage day and feature totals must reconcile exactly; purchased dollars and consumed service credits are different measures. Automatic refill is currently unsupported.
+
+## Deferred progress
+
+`checkpointDeferred(accountId, workId, binding, expectedRevision, value)` saves
+progress without settling or reserving more credits. The initial revision is 0;
+success returns the incremented revision and saved string. It verifies the bound
+effect and authorization, rejects stale revisions and terminal work, and limits
+the value to one million characters. Existing work uses the same JSON state
+column; no schema migration is required.
+
+A checkpoint is not an execution lease. Claim execution separately, persist an
+in-flight marker before any provider call, drain metering before saving its
+result, and retain the reservation if the outcome is uncertain.

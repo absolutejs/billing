@@ -10,6 +10,7 @@ export type DeferredCreditBinding = {
 };
 export type CreditWork = {
   deferred?: DeferredCreditBinding;
+  checkpoint?: { revision: number; value: string };
   request: string;
   budget: number;
   charged: number;
@@ -115,6 +116,32 @@ export const createPostgresCreditWork = (
     });
   };
   return {
+    /** Bound durable progress only: the caller must already own the effect lease.
+     * CAS prevents stale workers from overwriting a newer checkpoint. */
+    checkpointDeferred: (
+      accountId: string,
+      workId: string,
+      binding: DeferredCreditBinding,
+      expectedRevision: number,
+      value: string,
+    ) => {
+      id(accountId);
+      id(workId);
+      integer(expectedRevision);
+      if (expectedRevision === Number.MAX_SAFE_INTEGER || typeof value !== "string" || value.length > 1_000_000)
+        throw new Error("Invalid credit work checkpoint");
+      return client.transaction(async (sql) => {
+        const work = await read(sql, accountId, workId);
+        if (!work) throw new Error("Credit work does not exist");
+        bindingMatches(work, binding);
+        if (work.status !== "running") throw new Error("Credit work already finished");
+        if ((work.checkpoint?.revision ?? 0) !== expectedRevision)
+          throw new Error("Credit work checkpoint revision mismatch");
+        work.checkpoint = { revision: expectedRevision + 1, value };
+        await save(sql, accountId, workId, work);
+        return work.checkpoint;
+      });
+    },
     /** Call inside the same transaction as begin, authorization binding and outbox
      * enqueue. This transfers a reservation, never starts work or grants a lease. */
     handoff: (
