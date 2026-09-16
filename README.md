@@ -117,3 +117,12 @@ column; no schema migration is required.
 A checkpoint is not an execution lease. Claim execution separately, persist an
 in-flight marker before any provider call, drain metering before saving its
 result, and retain the reservation if the outcome is uncertain.
+
+### Uncapped embedding plans and application budgets
+
+Pass `monthlyTokenLimit: null` in `EmbeddingUsageSnapshot` when the configured
+provider plan has no monthly embedding-token cap. `monthlyBudgetTokens` can
+separately describe a host-owned spending guardrail; it is never reported as
+provider quota. Both values are host configuration, not a live provider balance.
+`exhausted: true` reports currently refused embeddings without assuming a monthly
+cap caused the refusal. Member allowances remain the host application's policy.

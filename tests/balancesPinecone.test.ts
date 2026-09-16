@@ -27,7 +27,7 @@ describe("pinecone embedding quota tile", () => {
     const [tile] = await readProviderBalances({
       pinecone: { ...snapshot, exhausted: true, tokensUsed: 5_000_000 },
     });
-    expect(tile?.detail).toContain("quota spent, embeddings refused");
+    expect(tile?.detail).toContain("embeddings currently refused");
     expect(tile?.remaining).toBe(0);
   });
 
@@ -48,4 +48,33 @@ describe("pinecone embedding quota tile", () => {
     const tiles = await readProviderBalances({});
     expect(tiles).toHaveLength(0);
   });
+});
+
+test("uncapped paid usage retains application budget without fabricating provider headroom", async () => {
+  const [tile] = await readProviderBalances({
+    pinecone: {
+      ...snapshot,
+      monthlyTokenLimit: null,
+      monthlyBudgetTokens: 9000000,
+      tier: "Standard",
+    },
+  });
+  expect(tile).toMatchObject({
+    limit: null,
+    remaining: null,
+    used: 4700000,
+    tier: "Standard",
+    status: "ok",
+  });
+  expect(tile?.detail).toContain("no monthly token cap");
+  expect(tile?.note).toContain("Application budget: 9.0M");
+  expect(JSON.parse(JSON.stringify(tile)).limit).toBeNull();
+});
+test("refused embeddings do not imply monthly exhaustion even on a paid plan", async () => {
+  const [tile] = await readProviderBalances({
+    pinecone: { ...snapshot, monthlyTokenLimit: null, exhausted: true },
+  });
+  expect(tile?.status).toBe("error");
+  expect(tile?.detail).toContain("embeddings currently refused");
+  expect(tile?.detail).not.toContain("quota spent");
 });

@@ -67,14 +67,17 @@ export type BraveUsageSnapshot = {
  * "unconfigured" tile (so a dashboard can show every provider it cares about and
  * label the ones missing a key).
  */
-/** Embedding consumption the host measured itself, against the plan's cap.
- *  Vector vendors meter tokens per month and simply refuse once spent, so
- *  this is the number that predicts an outage. */
+/** Host-metered embedding consumption. Plan caps and application budgets are
+ * separate; paid usage can have no monthly cap while still being rate limited. */
 export type EmbeddingUsageSnapshot = {
   capturedAt: string;
   /** True when the provider is currently refusing embeddings. */
   exhausted?: boolean;
-  monthlyTokenLimit: number;
+  /** null means the configured plan has no monthly token cap. */
+  monthlyTokenLimit: number | null;
+  /** Optional host-owned spending guardrail, not a provider quota. */
+  monthlyBudgetTokens?: number | null;
+  tier?: string;
   resetDate?: string | null;
   tokensUsed: number;
 };
@@ -424,19 +427,31 @@ const pineconeBalance = (snap: EmbeddingUsageSnapshot | null | undefined) => {
       "No embedding usage reported yet — the host supplies this from its own metering.",
     );
   }
-  const remaining = Math.max(0, snap.monthlyTokenLimit - snap.tokensUsed);
+  const remaining =
+    snap.monthlyTokenLimit === null
+      ? null
+      : Math.max(0, snap.monthlyTokenLimit - snap.tokensUsed);
+  const consumption =
+    snap.monthlyTokenLimit === null
+      ? `${compactTokens(snap.tokensUsed)} tokens this month — no monthly token cap`
+      : `${compactTokens(snap.tokensUsed)} / ${compactTokens(snap.monthlyTokenLimit)} tokens this month`;
+  const budget =
+    snap.monthlyBudgetTokens == null
+      ? ""
+      : ` Application budget: ${compactTokens(snap.monthlyBudgetTokens)} tokens/month; not a provider quota.`;
   const quota: ProviderBalance = {
     ...base("pinecone", "Pinecone embeddings"),
     checkedAt: snap.capturedAt,
     detail: snap.exhausted
-      ? `${compactTokens(snap.tokensUsed)} / ${compactTokens(snap.monthlyTokenLimit)} tokens — quota spent, embeddings refused`
-      : `${compactTokens(snap.tokensUsed)} / ${compactTokens(snap.monthlyTokenLimit)} tokens this month`,
+      ? `${consumption}; embeddings currently refused`
+      : consumption,
     kind: "quota",
     limit: snap.monthlyTokenLimit,
-    note: "Counted from the host's own metering — Pinecone exposes no usage API.",
+    note: `Host-metered usage and configured plan; not a live provider balance. Rate limits and billing restrictions may still apply.${budget}`,
     remaining,
     resetDate: snap.resetDate ?? null,
-    status: "ok",
+    status: snap.exhausted ? "error" : "ok",
+    tier: snap.tier ?? null,
     unit: "tokens",
     used: snap.tokensUsed,
   };

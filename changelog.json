@@ -3,14 +3,28 @@
 	"name": "@absolutejs/billing",
 	"releases": [
 		{
-			"version": "0.13.1",
-			"date": "2026-09-13",
+			"changes": [
+				{
+					"kind": "added",
+					"summary": "Represent uncapped embedding plans separately from application budgets and report refused embeddings without assuming monthly exhaustion",
+					"symbols": [
+						"EmbeddingUsageSnapshot",
+						"readProviderBalances"
+					]
+				}
+			],
+			"date": "2026-09-16",
+			"version": "0.14.0"
+		},
+		{
 			"changes": [
 				{
 					"kind": "fixed",
 					"summary": "Ship a precompiled universal Vue credit picker and scoped CSS so consumers do not compile package SFCs into colliding client/server output paths."
 				}
-			]
+			],
+			"date": "2026-09-13",
+			"version": "0.13.1"
 		},
 		{
 			"changes": [
