@@ -6,6 +6,16 @@
 			"changes": [
 				{
 					"kind": "added",
+					"summary": "Add durable concurrent provider-cost and request admission with retained reservations for unknown outcomes"
+				}
+			],
+			"date": "2026-09-24",
+			"version": "0.15.0"
+		},
+		{
+			"changes": [
+				{
+					"kind": "added",
 					"summary": "Represent uncapped embedding plans separately from application budgets and report refused embeddings without assuming monthly exhaustion",
 					"symbols": [
 						"EmbeddingUsageSnapshot",

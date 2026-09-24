@@ -126,3 +126,9 @@ separately describe a host-owned spending guardrail; it is never reported as
 provider quota. Both values are host configuration, not a live provider balance.
 `exhausted: true` reports currently refused embeddings without assuming a monthly
 cap caused the refusal. Member allowances remain the host application's policy.
+
+## Provider admission
+
+`@absolutejs/billing/provider-budget` exports `createProviderBudget(client, table?)` using the existing `CreditSqlClient` transaction interface. The host owns a journaled PostgreSQL table with `id text primary key`, `scope text`, `period text`, `reserved_micros bigint`, `actual_micros bigint nullable`, and `status text` (plus a scope/period index). Reserve a defensible maximum **before** an external request; do not treat an estimate as a hard maximum. A repeated reservation ID never authorizes another request. Monthly request and daily cost scopes can be reserved independently; release any earlier scope if later admission fails.
+
+Settle known fulfilled or rejected calls exactly once. An interrupted/unknown provider outcome retains its full reservation until explicitly reconciled. This ledger bounds admitted research operations, independently of member-credit pricing; it does not discover or account for provider calls made outside it. The host must account for all retries/repairs in the reservation or disable them.
