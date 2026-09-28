@@ -18,8 +18,24 @@
 // owns the policy and the arithmetic, which is the part that is identical
 // everywhere — and the part that is worth getting wrong only once.
 
+/** Stable server-side correlation; identifiers are not authorization credentials.
+ * Unknown external-host spend must remain unknown, never inferred as zero. */
+export type UsageAttribution = {
+  traceId?: string;
+  runId?: string;
+  subjectType?: string;
+  subjectId?: string;
+  sessionId?: string;
+  workId?: string;
+  release?: string;
+  serverName?: string;
+  serverVersion?: string;
+  tool?: string;
+};
+
 /** One priced, metered event, ready to persist. */
 export type LedgerEntry = {
+  attribution?: UsageAttribution;
   /** Charge in integer sub-units of the plan's denomination (see
    *  `Plan.denomination`) — never a float. */
   amount: number;

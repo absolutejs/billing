@@ -139,3 +139,24 @@ describe("spend cap", () => {
     expect(await ledger.overCap(1, new Date())).toBe(false);
   });
 });
+
+test("attribution survives commit and rollup without changing charging", async () => {
+  const store = memoryStore();
+  const ledger = createUsageLedger({ creditPegSubUnits: PEG, store });
+  const attribution = {
+    traceId: "server-call",
+    runId: "briefing",
+    subjectType: "sales_brief",
+    subjectId: "authorized-brief",
+    release: "release-sha",
+  };
+  const result = await ledger.record({
+    amount: 1500,
+    operation: "llm",
+    provider: "fixture",
+    attribution,
+  });
+  expect(result.credits).toBe(2);
+  expect(store.committed[0]?.attribution).toEqual(attribution);
+  expect(store.rolled[0]?.attribution).toEqual(attribution);
+});
