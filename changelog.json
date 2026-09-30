@@ -6,6 +6,24 @@
 			"changes": [
 				{
 					"kind": "added",
+					"summary": "Add run-only promotional credit funding with no spendable remainder and structured credit errors",
+					"symbols": [
+						"LedgerEntry",
+						"UsageAttribution",
+						"CreditReservation",
+						"CreditCommand",
+						"CreditWork",
+						"createPostgresCreditWork"
+					]
+				}
+			],
+			"date": "2026-09-30",
+			"version": "0.16.0"
+		},
+		{
+			"changes": [
+				{
+					"kind": "added",
 					"summary": "Add durable concurrent provider-cost and request admission with retained reservations for unknown outcomes"
 				}
 			],

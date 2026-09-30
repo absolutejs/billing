@@ -1,3 +1,17 @@
+export class CreditError extends Error {
+  readonly name = "CreditError";
+  constructor(
+    public readonly code:
+      | "insufficient_credits"
+      | "approval_mismatch"
+      | "budget_exceeded",
+    message: string,
+    public readonly details?: { required?: number; available?: number },
+  ) {
+    super(message);
+  }
+}
+
 /** Service-credit accounting. Host authorization and payment verification happen
  * before these commands. Every command and its receipt commit in one transaction. */
 export type CreditAccount = {
@@ -22,6 +36,8 @@ export type CreditReservation = {
   allocation: CreditAllocation;
   status: "reserved" | "settled" | "released";
   charged: number | null;
+  /** Run-only promotional authorization; unused capacity is never refunded. */
+  promotionalSponsor?: string;
 };
 export type CreditCommand =
   | { kind: "grant"; bucket: "purchased" | "promotional"; credits: number }
@@ -33,6 +49,12 @@ export type CreditCommand =
       allowance: number;
     }
   | { kind: "reserve"; reservationId: string; credits: number }
+  | {
+      kind: "reserve_promotional";
+      reservationId: string;
+      credits: number;
+      actorId: string;
+    }
   | { kind: "settle"; reservationId: string; credits: number }
   | { kind: "release"; reservationId: string }
   | { kind: "debit"; credits: number; allowDebt?: boolean; reference?: string };
@@ -201,6 +223,13 @@ const normalize = (command: CreditCommand): CreditCommand => {
           command.periodEnd === null ? null : periodIdentity(command.periodEnd),
         allowance: integer(command.allowance),
       };
+    case "reserve_promotional":
+      return {
+        kind: command.kind,
+        reservationId: identity(command.reservationId),
+        credits: integer(command.credits),
+        actorId: identity(command.actorId),
+      };
     case "reserve":
     case "settle":
       return {
@@ -302,19 +331,52 @@ export const createCreditAccountLedger = (store: CreditAccountStore) => ({
           break;
         case "debit": {
           if (!command.allowDebt && availableCredits(account) < command.credits)
-            throw new Error("Insufficient credits");
+            throw new CreditError(
+              "insufficient_credits",
+              "Insufficient credits",
+              {
+                required: command.credits,
+                available: availableCredits(account),
+              },
+            );
           const used = allocationTotal(take(account, command.credits));
           account.debt += command.credits - used;
           account.consumed += command.credits;
           break;
         }
+        case "reserve_promotional":
+          if (command.credits === 0)
+            throw new Error("Reservation must be positive");
+          if (await tx.reservation(command.reservationId))
+            throw new Error("Credit reservation already exists");
+          reservation = {
+            id: command.reservationId,
+            periodId: account.periodId,
+            allocation: {
+              period: 0,
+              purchased: 0,
+              promotional: command.credits,
+            },
+            promotionalSponsor: command.actorId,
+            status: "reserved",
+            charged: null,
+          };
+          account.reserved += command.credits;
+          break;
         case "reserve":
           if (command.credits === 0)
             throw new Error("Reservation must be positive");
           if (await tx.reservation(command.reservationId))
             throw new Error("Credit reservation already exists");
           if (availableCredits(account) < command.credits)
-            throw new Error("Insufficient credits");
+            throw new CreditError(
+              "insufficient_credits",
+              "Insufficient credits",
+              {
+                required: command.credits,
+                available: availableCredits(account),
+              },
+            );
           reservation = {
             id: command.reservationId,
             periodId: account.periodId,
@@ -341,7 +403,10 @@ export const createCreditAccountLedger = (store: CreditAccountStore) => ({
           ] as const) {
             const restored = Math.min(held.allocation[bucket], refund);
             refund -= restored;
-            if (bucket !== "period" || held.periodId === account.periodId)
+            if (
+              !held.promotionalSponsor &&
+              (bucket !== "period" || held.periodId === account.periodId)
+            )
               grant(account, key, restored);
           }
           account.reserved -= total;

@@ -429,9 +429,9 @@ test("deferred reservation survives handoff, restart and unknown outcome with im
   ).rejects.toThrow("mismatch");
 });
 
-
 test("bound checkpoint CAS survives restart without changing the credit reservation", async () => {
-  const { createPostgresCreditWork, creditWorkPostgresSchemaSql } = await import("../src/creditWork");
+  const { createPostgresCreditWork, creditWorkPostgresSchemaSql } =
+    await import("../src/creditWork");
   await db.exec(creditWorkPostgresSchemaSql());
   await ledger.initialize("checkpoints", seed());
   const work = createPostgresCreditWork(client);
@@ -444,39 +444,150 @@ test("bound checkpoint CAS survives restart without changing the credit reservat
   ]);
   expect(races.filter((r) => r.status === "fulfilled")).toHaveLength(1);
   const restarted = createPostgresCreditWork(client);
-  expect((await restarted.get("checkpoints", "job"))?.checkpoint?.revision).toBe(1);
-  await expect(work.checkpointDeferred("another-account", "job", binding, 1, "bad")).rejects.toThrow("does not exist");
-  await expect(work.checkpointDeferred("checkpoints", "job", { ...binding, effectId: "other" }, 1, "bad")).rejects.toThrow("mismatch");
+  expect(
+    (await restarted.get("checkpoints", "job"))?.checkpoint?.revision,
+  ).toBe(1);
+  await expect(
+    work.checkpointDeferred("another-account", "job", binding, 1, "bad"),
+  ).rejects.toThrow("does not exist");
+  await expect(
+    work.checkpointDeferred(
+      "checkpoints",
+      "job",
+      { ...binding, effectId: "other" },
+      1,
+      "bad",
+    ),
+  ).rejects.toThrow("mismatch");
   await work.record("checkpoints", "job", "usage", 7, "step");
-  await work.checkpointDeferred("checkpoints", "job", binding, 1, "completed first step");
-  await work.finishDeferred("checkpoints", "job", binding, "unknown", "uncertain");
+  await work.checkpointDeferred(
+    "checkpoints",
+    "job",
+    binding,
+    1,
+    "completed first step",
+  );
+  await work.finishDeferred(
+    "checkpoints",
+    "job",
+    binding,
+    "unknown",
+    "uncertain",
+  );
   expect((await ledger.balance("checkpoints"))?.reserved).toBe(20);
   expect((await work.get("checkpoints", "job"))?.charged).toBe(7);
-  await work.finishDeferred("checkpoints", "job", binding, "succeeded", "result");
-  await expect(work.checkpointDeferred("checkpoints", "job", binding, 2, "late writer")).rejects.toThrow("already finished");
-  expect((await work.get("checkpoints", "job"))?.checkpoint).toEqual({ revision: 2, value: "completed first step" });
-  expect(await ledger.balance("checkpoints")).toMatchObject({ reserved: 0, consumed: 7, purchasedRemaining: 93 });
+  await work.finishDeferred(
+    "checkpoints",
+    "job",
+    binding,
+    "succeeded",
+    "result",
+  );
+  await expect(
+    work.checkpointDeferred("checkpoints", "job", binding, 2, "late writer"),
+  ).rejects.toThrow("already finished");
+  expect((await work.get("checkpoints", "job"))?.checkpoint).toEqual({
+    revision: 2,
+    value: "completed first step",
+  });
+  expect(await ledger.balance("checkpoints")).toMatchObject({
+    reserved: 0,
+    consumed: 7,
+    purchasedRemaining: 93,
+  });
 });
 
 test("new work admission is atomic and exact recovery never reevaluates policy", async () => {
-  const { createPostgresCreditWork, creditWorkPostgresSchemaSql, canAffordCreditStep } = await import("../src/creditWork");
+  const {
+    createPostgresCreditWork,
+    creditWorkPostgresSchemaSql,
+    canAffordCreditStep,
+  } = await import("../src/creditWork");
   await db.exec(creditWorkPostgresSchemaSql());
   await ledger.initialize("admission", seed());
   const work = createPostgresCreditWork(client);
   let evaluations = 0;
-  const admit = async () => { evaluations++; return { minimumCredits: 20, policy: "test-v1" }; };
-  await expect(work.begin("admission", "small", "plan", 1, admit)).rejects.toThrow("at least 20");
+  const admit = async () => {
+    evaluations++;
+    return { minimumCredits: 20, policy: "test-v1" };
+  };
+  await expect(
+    work.begin("admission", "small", "plan", 1, admit),
+  ).rejects.toThrow("at least 20");
   expect(await work.get("admission", "small")).toBeNull();
   expect((await ledger.balance("admission"))!.reserved).toBe(0);
   const first = await work.begin("admission", "fits", "plan", 20, admit);
-  expect(first.work.admission).toEqual({ minimumCredits: 20, policy: "test-v1" });
-  const unavailable = async (): Promise<never> => { throw new Error("pricing unavailable"); };
-  expect((await work.begin("admission", "fits", "plan", 20, unavailable)).fresh).toBe(false);
-  await expect(work.begin("admission", "fits", "changed", 20, unavailable)).rejects.toThrow("different input");
+  expect(first.work.admission).toEqual({
+    minimumCredits: 20,
+    policy: "test-v1",
+  });
+  const unavailable = async (): Promise<never> => {
+    throw new Error("pricing unavailable");
+  };
+  expect(
+    (await work.begin("admission", "fits", "plan", 20, unavailable)).fresh,
+  ).toBe(false);
+  await expect(
+    work.begin("admission", "fits", "changed", 20, unavailable),
+  ).rejects.toThrow("different input");
   expect(evaluations).toBe(2);
   expect(canAffordCreditStep(40, 20, 20)).toBe(true);
   expect(canAffordCreditStep(40, 21, 20)).toBe(false);
   expect(() => canAffordCreditStep(40, 0, NaN)).toThrow();
-  await expect(work.begin("admission", "missing", "plan", 20, unavailable)).rejects.toThrow("pricing unavailable");
+  await expect(
+    work.begin("admission", "missing", "plan", 20, unavailable),
+  ).rejects.toThrow("pricing unavailable");
   expect((await ledger.balance("admission"))!.reserved).toBe(20);
+});
+
+test("run-only promotional funding never becomes spendable, including release, rollover and replay", async () => {
+  const { createPostgresCreditWork, creditWorkPostgresSchemaSql } =
+    await import("../src/creditWork");
+  await db.exec(creditWorkPostgresSchemaSql());
+  await ledger.initialize("sponsored", { ...seed(3), debt: 2 });
+  const work = createPostgresCreditWork(client);
+  const funding = {
+    kind: "promotional",
+    actorId: "admin",
+    beneficiaryId: "sponsored",
+  } as const;
+  const binding = { effectId: "asset:1", authorizationId: "approval:1" };
+  await work.begin("sponsored", "job", "request", 100, undefined, funding);
+  expect(availableCredits((await ledger.balance("sponsored"))!)).toBe(1);
+  await work.handoff("sponsored", "job", binding);
+  await expect(work.begin("sponsored", "job", "request", 100)).rejects.toThrow(
+    "different input",
+  );
+  expect(() =>
+    work.begin("other", "bad", "request", 100, undefined, funding),
+  ).toThrow("beneficiary");
+  await work.record("sponsored", "job", "usage", 7, "provider");
+  const pending = await work.finishDeferred(
+    "sponsored",
+    "job",
+    binding,
+    "unknown",
+    "unknown",
+  );
+  expect(pending.status).toBe("running");
+  expect((await ledger.balance("sponsored"))!.reserved).toBe(100);
+  await work.finishDeferred("sponsored", "job", binding, "succeeded", "ready");
+  await work.finishDeferred("sponsored", "job", binding, "succeeded", "ready");
+  const balance = (await ledger.balance("sponsored"))!;
+  expect(balance).toMatchObject({
+    promotionalRemaining: 0,
+    purchasedRemaining: 3,
+    debt: 2,
+    consumed: 7,
+    reserved: 0,
+  });
+  const receipt = await ledger.receipt("sponsored", "work-settle:job");
+  expect(receipt?.reservation).toMatchObject({
+    charged: 7,
+    promotionalSponsor: "admin",
+  });
+  await work.begin("sponsored", "cancel", "request", 100, undefined, funding);
+  await work.finish("sponsored", "cancel", "cancelled", true);
+  expect(availableCredits((await ledger.balance("sponsored"))!)).toBe(1);
+  expect((await ledger.balance("sponsored"))!.promotionalRemaining).toBe(0);
 });

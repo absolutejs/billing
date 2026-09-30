@@ -1,9 +1,15 @@
-import { createCreditAccountLedger } from "./prepaid";
+import { CreditError, createCreditAccountLedger } from "./prepaid";
 import {
   createPostgresCreditAccountStore,
   type CreditSql,
   type CreditSqlClient,
 } from "./prepaidPostgres";
+export { CreditError } from "./prepaid";
+export type CreditWorkFunding = {
+  kind: "promotional";
+  actorId: string;
+  beneficiaryId: string;
+};
 export type DeferredCreditBinding = {
   effectId: string;
   authorizationId: string;
@@ -11,13 +17,24 @@ export type DeferredCreditBinding = {
 /** Trusted server-side admission policy, evaluated only for a new claim.
  * This is an estimate-based floor, not a provider-cost guarantee or authorization. */
 export type CreditWorkAdmission = { minimumCredits: number; policy: string };
-export const canAffordCreditStep = (budget: number, charged: number, minimumCredits: number) => {
-  if (![budget, charged, minimumCredits].every(Number.isSafeInteger) || budget < 1 || charged < 0 || charged > budget || minimumCredits < 1)
+export const canAffordCreditStep = (
+  budget: number,
+  charged: number,
+  minimumCredits: number,
+) => {
+  if (
+    ![budget, charged, minimumCredits].every(Number.isSafeInteger) ||
+    budget < 1 ||
+    charged < 0 ||
+    charged > budget ||
+    minimumCredits < 1
+  )
     throw new Error("Invalid credit step budget");
   return budget - charged >= minimumCredits;
 };
 export type CreditWork = {
   admission?: CreditWorkAdmission;
+  funding?: CreditWorkFunding;
   deferred?: DeferredCreditBinding;
   checkpoint?: { revision: number; value: string };
   request: string;
@@ -91,7 +108,10 @@ export const createPostgresCreditWork = (
       work.deferred?.effectId !== binding.effectId ||
       work.deferred.authorizationId !== binding.authorizationId
     )
-      throw new Error("Deferred credit authorization mismatch");
+      throw new CreditError(
+        "approval_mismatch",
+        "Deferred credit authorization mismatch",
+      );
   };
   const finish = (
     accountId: string,
@@ -137,13 +157,18 @@ export const createPostgresCreditWork = (
       id(accountId);
       id(workId);
       integer(expectedRevision);
-      if (expectedRevision === Number.MAX_SAFE_INTEGER || typeof value !== "string" || value.length > 1_000_000)
+      if (
+        expectedRevision === Number.MAX_SAFE_INTEGER ||
+        typeof value !== "string" ||
+        value.length > 1_000_000
+      )
         throw new Error("Invalid credit work checkpoint");
       return client.transaction(async (sql) => {
         const work = await read(sql, accountId, workId);
         if (!work) throw new Error("Credit work does not exist");
         bindingMatches(work, binding);
-        if (work.status !== "running") throw new Error("Credit work already finished");
+        if (work.status !== "running")
+          throw new Error("Credit work already finished");
         if ((work.checkpoint?.revision ?? 0) !== expectedRevision)
           throw new Error("Credit work checkpoint revision mismatch");
         work.checkpoint = { revision: expectedRevision + 1, value };
@@ -234,9 +259,21 @@ export const createPostgresCreditWork = (
       request: string,
       budget: number,
       admit?: () => Promise<CreditWorkAdmission>,
+      funding?: CreditWorkFunding,
     ) => {
       id(accountId);
       id(workId);
+      if (funding) {
+        if (
+          funding.kind !== "promotional" ||
+          funding.beneficiaryId !== accountId
+        )
+          throw new CreditError(
+            "approval_mismatch",
+            "Promotional beneficiary mismatch",
+          );
+        id(funding.actorId);
+      }
       integer(budget);
       if (!budget || !request || request.length > 256)
         throw new Error("Invalid credit work request");
@@ -248,24 +285,44 @@ export const createPostgresCreditWork = (
         );
         const existing = await read(sql, accountId, workId);
         if (existing) {
-          if (existing.request !== request || existing.budget !== budget)
+          if (
+            existing.request !== request ||
+            existing.budget !== budget ||
+            JSON.stringify(existing.funding) !== JSON.stringify(funding)
+          )
             throw new Error("Credit work ID reused with different input");
           return { fresh: false, work: existing };
         }
         const admission = admit ? await admit() : undefined;
         if (admission) {
-          if (typeof admission.policy !== "string" || !admission.policy || admission.policy.length > 256)
+          if (
+            typeof admission.policy !== "string" ||
+            !admission.policy ||
+            admission.policy.length > 256
+          )
             throw new Error("Invalid credit admission policy");
           if (!canAffordCreditStep(budget, 0, admission.minimumCredits))
-            throw new Error(`This work requires at least ${admission.minimumCredits} service credits. No credits reserved; request a new estimate and user-approved budget.`);
+            throw new Error(
+              `This work requires at least ${admission.minimumCredits} service credits. No credits reserved; request a new estimate and user-approved budget.`,
+            );
         }
         await ledger(sql).execute(accountId, `work-reserve:${workId}`, {
-          kind: "reserve",
+          ...(funding
+            ? { kind: "reserve_promotional" as const, actorId: funding.actorId }
+            : { kind: "reserve" as const }),
           reservationId: `work:${workId}`,
           credits: budget,
         });
         const work: CreditWork = {
-          ...(admission ? { admission: { minimumCredits: admission.minimumCredits, policy: admission.policy } } : {}),
+          ...(admission
+            ? {
+                admission: {
+                  minimumCredits: admission.minimumCredits,
+                  policy: admission.policy,
+                },
+              }
+            : {}),
+          ...(funding ? { funding: { ...funding } } : {}),
           request,
           budget,
           charged: 0,

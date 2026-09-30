@@ -21,6 +21,10 @@
 /** Stable server-side correlation; identifiers are not authorization credentials.
  * Unknown external-host spend must remain unknown, never inferred as zero. */
 export type UsageAttribution = {
+  actorId?: string;
+  beneficiaryId?: string;
+  fundingSource?: "member" | "promotional";
+  approvalId?: string;
   traceId?: string;
   runId?: string;
   subjectType?: string;
