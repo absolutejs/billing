@@ -1,6 +1,6 @@
 {
   "name": "@absolutejs/billing",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "description": "Provider-neutral pricing and invoice computation used by the hosted AbsoluteJS.ai platform. Converts metered usage into exact integer-micro line items with tiers and allowances.",
   "repository": {
     "type": "git",
@@ -73,6 +73,11 @@
     "./provider-budget": {
       "types": "./dist/providerBudget.d.ts",
       "import": "./dist/providerBudget.js"
+    },
+    "./paid-work-policy": {
+      "types": "./dist/paidWorkPolicy.d.ts",
+      "import": "./dist/paidWorkPolicy.js",
+      "default": "./dist/paidWorkPolicy.js"
     }
   },
   "publishConfig": {
@@ -88,7 +93,7 @@
     "vue"
   ],
   "scripts": {
-    "build": "rm -rf dist && bun build src/index.ts src/providerBudget.ts src/ledger.ts src/prepaid.ts src/prepaidPostgres.ts src/creditWork.ts src/creditPurchase.ts src/checkoutHandoff.ts src/reports.ts src/manifest.ts --root ./src --outdir dist --sourcemap --target=bun && tsc --project tsconfig.build.json && absolute-manifest emit && bun scripts/build-vue.ts",
+    "build": "rm -rf dist && bun build src/index.ts src/providerBudget.ts src/ledger.ts src/prepaid.ts src/prepaidPostgres.ts src/creditWork.ts src/paidWorkPolicy.ts src/creditPurchase.ts src/checkoutHandoff.ts src/reports.ts src/manifest.ts --root ./src --outdir dist --sourcemap --target=bun && tsc --project tsconfig.build.json && absolute-manifest emit && bun scripts/build-vue.ts",
     "test": "bun test tests/",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write \"./**/*.{ts,json,md}\"",

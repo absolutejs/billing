@@ -6,6 +6,16 @@
 			"changes": [
 				{
 					"kind": "added",
+					"summary": "Add reusable paid execution scopes and opaque runtime-checked provider authorization capabilities"
+				}
+			],
+			"date": "2026-09-30",
+			"version": "0.17.0"
+		},
+		{
+			"changes": [
+				{
+					"kind": "added",
 					"summary": "Add run-only promotional credit funding with no spendable remainder and structured credit errors",
 					"symbols": [
 						"LedgerEntry",

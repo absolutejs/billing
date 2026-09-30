@@ -136,3 +136,44 @@ Settle known fulfilled or rejected calls exactly once. An interrupted/unknown pr
 ### Usage attribution
 
 `LedgerEntry.attribution` accepts a portable `UsageAttribution` record (call trace, run, subject, session, funded work, release, server and tool). It passes unchanged to the commit and rollup stores and does not affect pricing. The host must retain it with the event and bind subjects after authorization. Observability identity must not change a provider event's charging/idempotency identity. Unknown external-host spend is not zero.
+
+## Paid execution policy
+
+`@absolutejs/billing/paid-work-policy` exports `createPaidWorkPolicy`,
+`PaidAuthorization`, and `PaidWorkApprovalError` for Node/Bun servers. Create one
+policy per application with `currentWork` and `withWork` adapters to its funded
+execution context. The context carries `userSub`, optional `actorId` and
+`approvalId`, and a mutable `closed` flag. Only trusted admission code may create
+or attach this context.
+
+Wrap authenticated handlers in `withPaidRequester(userSub, request.method,
+handler, impersonatorId?)`. Reads (including HEAD and OPTIONS) cannot authorize
+spending, even through a nested write scope. Start paid work with POST; its
+response may stream. A GET endpoint should only read previously generated data.
+The transport contract and the spending contract must agree: Eden's route types
+alone cannot verify handler side effects.
+
+Require a `PaidAuthorization` parameter at each paid transport boundary. Obtain
+it using `authorizePaidWork()` in the admitted execution scope, and call
+`requirePaidAuthorization(authorization)` immediately before starting a provider
+attempt. Tokens are opaque, checked at runtime, specific to the policy instance
+and execution scope, and rejected after their funded/deferred scope closes.
+`bindPaidExecution` preserves a scope for response iterators that outlive their
+handler. Do not serialize tokens, accept them from clients, or cache them across
+requests. A payer ID alone cannot mint a capability: `authorizePaidWork` requires an
+authenticated or funded scope. The lower-level `requirePaidWorkOwner` retains a
+trusted-server payer fallback for attribution; that fallback does not authorize
+a provider capability.
+
+An impersonated request requires a funded work context whose actor matches the
+impersonator and which has an approval ID. `withoutAutomaticSpend` blocks
+unapproved background calls. `withDeferredPaidRequester` is exclusively for a
+worker that has already atomically claimed a durable approval; it closes that
+permission when its callback finishes.
+
+This policy checks execution identity and intent. The host still authenticates
+sessions, validates approval ownership/expiry, reserves and bounds provider
+costs before calling them, meters actual usage, and settles or retains uncertain
+reservations. An authorization token is not a credit balance or a durable
+execution lease. TypeScript prevents accidental missing capabilities; runtime
+checks remain necessary for untrusted input and changing state.
