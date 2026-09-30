@@ -134,3 +134,10 @@ test("a payer ID alone cannot mint provider authorization", () => {
     "execution scope",
   );
 });
+
+test("binding a stream cannot manufacture requester authorization from an ID", () => {
+  const policy = fixture();
+  expect(() =>
+    policy.bindPaidExecution("member", async () => policy.authorizePaidWork()),
+  ).toThrow("execution scope");
+});

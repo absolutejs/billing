@@ -32,12 +32,16 @@ export const createPaidWorkPolicy = <W extends PaidWorkContext>(
   >();
   const background = new AsyncLocalStorage<boolean>();
   type PaidRequester = { userSub: string; readOnly: boolean; actorId?: string };
-  const requester = new AsyncLocalStorage<PaidRequester>();
+  const requester = new AsyncLocalStorage<PaidRequester | undefined>();
 
   /** Preserve admission context when a response iterator outlives its handler. */
   const bindPaidExecution = <T>(userSub: string, run: () => Promise<T>) => {
     requirePaidWorkOwner(userSub);
-    const actor = requester.getStore() ?? { readOnly: false, userSub };
+    if (!hasBoundPaidRequester())
+      throw new PaidWorkApprovalError(
+        "An authenticated or funded execution scope is required",
+      );
+    const actor = requester.getStore();
     const work = currentCreditWork();
     const automatic = isBackgroundPaidWork();
     const deferred = deferredRequester.getStore();

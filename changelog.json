@@ -5,6 +5,16 @@
 		{
 			"changes": [
 				{
+					"kind": "fixed",
+					"summary": "Require an existing admitted scope when binding deferred stream execution"
+				}
+			],
+			"date": "2026-09-30",
+			"version": "0.17.1"
+		},
+		{
+			"changes": [
+				{
 					"kind": "added",
 					"summary": "Add reusable paid execution scopes and opaque runtime-checked provider authorization capabilities"
 				}
