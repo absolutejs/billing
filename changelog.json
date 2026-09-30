@@ -6,6 +6,16 @@
 			"changes": [
 				{
 					"kind": "fixed",
+					"summary": "Publish the scoped execution guard in a replacement npm artifact for the unavailable 0.17.1 download"
+				}
+			],
+			"date": "2026-09-30",
+			"version": "0.17.2"
+		},
+		{
+			"changes": [
+				{
+					"kind": "fixed",
 					"summary": "Require an existing admitted scope when binding deferred stream execution"
 				}
 			],
