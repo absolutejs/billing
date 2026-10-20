@@ -591,3 +591,139 @@ test("run-only promotional funding never becomes spendable, including release, r
   expect(availableCredits((await ledger.balance("sponsored"))!)).toBe(1);
   expect((await ledger.balance("sponsored"))!.promotionalRemaining).toBe(0);
 });
+
+test("top-up continuation preserves settled spend, copies progress, and has one successor", async () => {
+  const { createPostgresCreditWork, creditWorkPostgresSchemaSql } =
+    await import("../src/creditWork");
+  await db.exec(creditWorkPostgresSchemaSql());
+  await ledger.initialize("continuation", seed(10));
+  const work = createPostgresCreditWork(client);
+  const binding = {
+    effectId: "segment-one",
+    authorizationId: "immutable-plan",
+  };
+  const nextBinding = { ...binding, effectId: "segment-two" };
+  await work.begin("continuation", "one", "immutable-plan", 10);
+  await work.handoff("continuation", "one", binding);
+  await work.record("continuation", "one", "usage-one", 7, "provider");
+  const checkpoint = await work.checkpointDeferred(
+    "continuation",
+    "one",
+    binding,
+    0,
+    JSON.stringify({ completed: ["first"], inFlight: null }),
+  );
+  await work.pauseDeferred(
+    "continuation",
+    "one",
+    binding,
+    checkpoint.revision,
+    "funding",
+  );
+  expect((await ledger.balance("continuation"))?.consumed).toBe(7);
+  await expect(
+    work.continueDeferred(
+      "continuation",
+      "one",
+      binding,
+      1,
+      "two",
+      nextBinding,
+      10,
+    ),
+  ).rejects.toThrow();
+  expect(
+    (await work.get("continuation", "one"))?.pause?.continuationId,
+  ).toBeUndefined();
+  await ledger.execute("continuation", "topup", {
+    kind: "grant",
+    bucket: "purchased",
+    credits: 20,
+  });
+  const results = await Promise.all([
+    work.continueDeferred(
+      "continuation",
+      "one",
+      binding,
+      1,
+      "two",
+      nextBinding,
+      10,
+    ),
+    work.continueDeferred(
+      "continuation",
+      "one",
+      binding,
+      1,
+      "two",
+      nextBinding,
+      10,
+    ),
+  ]);
+  expect(results.filter((result) => result.fresh)).toHaveLength(1);
+  expect(results[0]!.work.checkpoint).toEqual(checkpoint);
+  expect((await ledger.balance("continuation"))?.reserved).toBe(10);
+  await expect(
+    work.continueDeferred(
+      "continuation",
+      "one",
+      binding,
+      1,
+      "other",
+      { ...binding, effectId: "other" },
+      10,
+    ),
+  ).rejects.toThrow("already has");
+  await expect(
+    work.continueDeferred("other", "one", binding, 1, "two", nextBinding, 10),
+  ).rejects.toThrow();
+  await expect(
+    work.continueDeferred(
+      "continuation",
+      "one",
+      binding,
+      2,
+      "two",
+      nextBinding,
+      10,
+    ),
+  ).rejects.toThrow();
+  await work.record("continuation", "two", "usage-two", 5, "provider");
+  await work.finishDeferred(
+    "continuation",
+    "two",
+    nextBinding,
+    "succeeded",
+    "done",
+  );
+  expect((await ledger.balance("continuation"))?.consumed).toBe(12);
+  expect((await work.get("continuation", "one"))?.charged).toBe(7);
+  expect((await ledger.balance("continuation"))?.reserved).toBe(0);
+});
+
+test("unknown provider outcome cannot become a resumable funding pause", async () => {
+  const { createPostgresCreditWork } = await import("../src/creditWork");
+  const work = createPostgresCreditWork(client);
+  await ledger.initialize("uncertain-pause", seed());
+  const binding = { effectId: "effect", authorizationId: "plan" };
+  await work.begin("uncertain-pause", "job", "plan", 10);
+  await work.handoff("uncertain-pause", "job", binding);
+  await work.checkpointDeferred(
+    "uncertain-pause",
+    "job",
+    binding,
+    0,
+    "checkpoint",
+  );
+  await work.finishDeferred(
+    "uncertain-pause",
+    "job",
+    binding,
+    "unknown",
+    "unknown",
+  );
+  await expect(
+    work.pauseDeferred("uncertain-pause", "job", binding, 1, "funding"),
+  ).rejects.toThrow();
+  expect((await ledger.balance("uncertain-pause"))?.reserved).toBe(10);
+});

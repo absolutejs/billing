@@ -7,7 +7,18 @@ export type CheckoutQuote = {
   currency: string;
   credits: number;
 };
+export type CheckoutContinuation = { workId: string; returnPath: string };
+const validContinuation = (value: CheckoutContinuation) =>
+  typeof value.workId === "string" &&
+  value.workId.length > 0 &&
+  value.workId.length <= 128 &&
+  typeof value.returnPath === "string" &&
+  value.returnPath.length <= 2048 &&
+  /^\/(?!\/)/u.test(value.returnPath) &&
+  !/[\\\x00-\x20]/u.test(value.returnPath);
 export type CheckoutHandoff = {
+  /** Navigation/recovery only; never authorizes execution or proves payment. */
+  continuation?: CheckoutContinuation;
   id: string;
   accountId: string;
   quote: CheckoutQuote;
@@ -40,6 +51,7 @@ CREATE TABLE IF NOT EXISTS billing_checkout.handoffs (
 );
 ALTER TABLE billing_checkout.handoffs ADD COLUMN IF NOT EXISTS payment_locked boolean NOT NULL DEFAULT false;
 ALTER TABLE billing_checkout.handoffs ADD COLUMN IF NOT EXISTS replaced_by text;
+ALTER TABLE billing_checkout.handoffs ADD COLUMN IF NOT EXISTS continuation jsonb;
 CREATE INDEX IF NOT EXISTS handoffs_account ON billing_checkout.handoffs(account_id, id);
 `;
 const decode = (
@@ -69,7 +81,14 @@ const decode = (
     credits: quote.credits,
   };
   if (!validQuote(parsed)) throw new Error("Invalid checkout quote");
+  const continuation = row.continuation as
+    | CheckoutContinuation
+    | null
+    | undefined;
+  if (continuation && !validContinuation(continuation))
+    throw new Error("Invalid checkout continuation");
   return {
+    ...(continuation ? { continuation } : {}),
     id: row.id,
     accountId: row.account_id,
     quote: parsed,
@@ -84,15 +103,28 @@ export const createPostgresCheckoutHandoffs = (
   db: CreditSqlClient,
   now = Date.now,
 ) => ({
-  async issue(accountId: string, quote: CheckoutQuote) {
+  async issue(
+    accountId: string,
+    quote: CheckoutQuote,
+    continuation?: CheckoutContinuation,
+  ) {
+    if (continuation && !validContinuation(continuation))
+      throw new Error("Invalid checkout continuation");
     if (!accountId || !validQuote(quote))
       throw new Error("Invalid checkout request");
     const code = secret();
     const id = randomUUID();
     const expiresAt = now() + lifetimeMs;
     await db.query(
-      `INSERT INTO billing_checkout.handoffs(id,account_id,quote,code_hash,expires_at) VALUES ($1,$2,$3::text::jsonb,$4,$5)`,
-      [id, accountId, JSON.stringify(quote), hash(code), expiresAt],
+      `INSERT INTO billing_checkout.handoffs(id,account_id,quote,code_hash,expires_at,continuation) VALUES ($1,$2,$3::text::jsonb,$4,$5,$6::text::jsonb)`,
+      [
+        id,
+        accountId,
+        JSON.stringify(quote),
+        hash(code),
+        expiresAt,
+        JSON.stringify(continuation ?? null),
+      ],
     );
     return { id, code, expiresAt };
   },
@@ -119,37 +151,66 @@ export const createPostgresCheckoutHandoffs = (
   },
   /** Price changes create a new reference and retire the old capability atomically.
    * The server computes quote; the browser supplies only its selected amount. */
-  async selectQuote(session: string, csrf: string, expectedId: string, quote: CheckoutQuote, browserAccountId: string | null = null) {
-    if (!validSecret(session) || !validSecret(csrf) || !validQuote(quote)) return null;
-    return db.transaction(async tx => {
+  async selectQuote(
+    session: string,
+    csrf: string,
+    expectedId: string,
+    quote: CheckoutQuote,
+    browserAccountId: string | null = null,
+  ) {
+    if (!validSecret(session) || !validSecret(csrf) || !validQuote(quote))
+      return null;
+    return db.transaction(async (tx) => {
       const { rows } = await tx.query(
         `SELECT * FROM billing_checkout.handoffs WHERE id=$1 AND session_hash=$2 AND csrf_hash=$3 AND session_expires_at>$4 AND payment_locked=false AND ($5::text IS NULL OR account_id=$5) FOR UPDATE`,
-        [expectedId, hash(session), hash(csrf), now(), browserAccountId]);
+        [expectedId, hash(session), hash(csrf), now(), browserAccountId],
+      );
       const row = rows[0];
       const old = decode(row);
       if (!row || !old) return null;
       const id = randomUUID();
-      await tx.query(`UPDATE billing_checkout.handoffs SET session_hash=NULL,csrf_hash=NULL,session_expires_at=0,expires_at=0,payment_locked=true,replaced_by=$2 WHERE id=$1`, [old.id, id]);
+      await tx.query(
+        `UPDATE billing_checkout.handoffs SET session_hash=NULL,csrf_hash=NULL,session_expires_at=0,expires_at=0,payment_locked=true,replaced_by=$2 WHERE id=$1`,
+        [old.id, id],
+      );
       const created = await tx.query(
-        `INSERT INTO billing_checkout.handoffs(id,account_id,quote,code_hash,expires_at,session_hash,csrf_hash,session_expires_at) VALUES ($1,$2,$3::text::jsonb,$4,$5,$6,$7,$5) RETURNING *`,
-        [id, old.accountId, JSON.stringify(quote), hash(secret()), row.session_expires_at, hash(session), hash(csrf)]);
+        `INSERT INTO billing_checkout.handoffs(id,account_id,quote,code_hash,expires_at,session_hash,csrf_hash,session_expires_at,continuation) VALUES ($1,$2,$3::text::jsonb,$4,$5,$6,$7,$5,$8::text::jsonb) RETURNING *`,
+        [
+          id,
+          old.accountId,
+          JSON.stringify(quote),
+          hash(secret()),
+          row.session_expires_at,
+          hash(session),
+          hash(csrf),
+          JSON.stringify(old.continuation ?? null),
+        ],
+      );
       return decode(created.rows[0]);
     });
   },
   /** Freeze the exact reference before an external payment request. Repeated
    * calls can reconcile that same payment, but can never change its quote. */
-  async lockPayment(session: string, csrf: string, expectedId: string, browserAccountId: string | null = null) {
+  async lockPayment(
+    session: string,
+    csrf: string,
+    expectedId: string,
+    browserAccountId: string | null = null,
+  ) {
     if (!validSecret(session) || !validSecret(csrf)) return null;
     const { rows } = await db.query(
       `UPDATE billing_checkout.handoffs SET payment_locked=true WHERE id=$1 AND session_hash=$2 AND csrf_hash=$3 AND session_expires_at>$4 AND ($5::text IS NULL OR account_id=$5) RETURNING *`,
-      [expectedId, hash(session), hash(csrf), now(), browserAccountId]);
+      [expectedId, hash(session), hash(csrf), now(), browserAccountId],
+    );
     return decode(rows[0]);
   },
   /** Original assistant references follow amount changes without granting access
    * to another account. Limit traversal so corrupt/cyclic history fails closed. */
   async current(accountId: string, id: string) {
     const { rows } = await db.query(
-      `WITH RECURSIVE chain AS (SELECT h.*,0 AS depth FROM billing_checkout.handoffs h WHERE h.id=$1 AND h.account_id=$2 UNION ALL SELECT h.*,c.depth+1 FROM billing_checkout.handoffs h JOIN chain c ON h.id=c.replaced_by WHERE h.account_id=$2 AND c.depth<100) SELECT * FROM chain WHERE replaced_by IS NULL LIMIT 1`, [id, accountId]);
+      `WITH RECURSIVE chain AS (SELECT h.*,0 AS depth FROM billing_checkout.handoffs h WHERE h.id=$1 AND h.account_id=$2 UNION ALL SELECT h.*,c.depth+1 FROM billing_checkout.handoffs h JOIN chain c ON h.id=c.replaced_by WHERE h.account_id=$2 AND c.depth<100) SELECT * FROM chain WHERE replaced_by IS NULL LIMIT 1`,
+      [id, accountId],
+    );
     return decode(rows[0]);
   },
   async authorize(

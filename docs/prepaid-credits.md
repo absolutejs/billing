@@ -71,3 +71,25 @@ before marking a new provider step in flight. Use a conservative current estimat
 and the persisted floor; stop with saved partial results when it no longer fits.
 An estimate is not an authorization, guaranteed price, or provider-spend ceiling.
 The explicit charge cap and absorbed overrun accounting still apply.
+
+## Funding pauses and continuation
+
+A trusted worker may call `pauseDeferred(accountId, workId, binding,
+checkpointRevision, "funding")` only after checkpointing known provider results
+and all metering, with no in-flight provider operation. This settles the segment,
+releases unused credits, and preserves its checkpoint and charges. An outcome
+marked unknown cannot be converted to a funding pause.
+
+After verified funding, call `continueDeferred(accountId, previousWorkId,
+previousBinding, checkpointRevision, nextWorkId, nextBinding, budget, admit)`
+inside the same database transaction as the successor's durable outbox enqueue.
+The next binding uses a new effect ID and the same immutable authorization ID.
+Exactly one successor may claim a pause. Same-ID retries return that successor;
+different IDs, revisions, owners, or budgets cannot create duplicate work.
+Progress is copied, while the successor has its own reservation and usage ledger.
+The host follows `pause.continuationId` to the active segment and sums charges
+across the chain for reporting. Never start the original plan from step zero.
+
+These methods do not grant an execution lease or approve an external action.
+The host must validate ownership and the immutable plan, acquire the execution
+lease, explicitly resume the saved pause, and reconcile uncertain outcomes.

@@ -5,6 +5,24 @@
 		{
 			"changes": [
 				{
+					"kind": "added",
+					"summary": "Add funded continuation segments and durable checkout return context without repeating prior work",
+					"symbols": [
+						"CreditWork",
+						"createPostgresCreditWork",
+						"CheckoutContinuation",
+						"CheckoutHandoff",
+						"createPostgresCheckoutHandoffs",
+						"checkoutHandoffPostgresSchemaSql"
+					]
+				}
+			],
+			"date": "2026-10-20",
+			"version": "0.18.0"
+		},
+		{
+			"changes": [
+				{
 					"kind": "fixed",
 					"summary": "Publish the scoped execution guard in a replacement npm artifact for the unavailable 0.17.1 download"
 				}

@@ -37,6 +37,10 @@ export type CreditWork = {
   funding?: CreditWorkFunding;
   deferred?: DeferredCreditBinding;
   checkpoint?: { revision: number; value: string };
+  /** A settled segment may continue once; its charges remain immutable. */
+  pause?: { reason: string; revision: number; continuationId?: string };
+  previousWorkId?: string;
+  uncertain?: boolean;
   request: string;
   budget: number;
   charged: number;
@@ -139,12 +143,138 @@ export const createPostgresCreditWork = (
         credits: work.charged,
       });
       work.status = failed ? "failed" : "completed";
+      delete work.uncertain;
       work.result = result;
       await save(sql, accountId, workId, work);
       return work;
     });
   };
-  return {
+  const api = {
+    /** Settle a known safe pause. Call only after the worker has durably
+     * checkpointed all usage and confirmed no provider operation is in flight. */
+    pauseDeferred: (
+      accountId: string,
+      workId: string,
+      binding: DeferredCreditBinding,
+      expectedRevision: number,
+      reason: string,
+    ) => {
+      id(accountId);
+      id(workId);
+      id(reason);
+      integer(expectedRevision);
+      return client.transaction(async (sql) => {
+        await sql.query(
+          `SELECT account_id FROM ${n}.accounts WHERE account_id=$1 FOR UPDATE`,
+          [accountId],
+        );
+        const work = await read(sql, accountId, workId);
+        if (!work) throw new Error("Credit work does not exist");
+        bindingMatches(work, binding);
+        if (work.pause) {
+          if (
+            work.pause.revision !== expectedRevision ||
+            work.pause.reason !== reason
+          )
+            throw new Error("Pause revision or reason mismatch");
+          return work;
+        }
+        if (
+          work.uncertain ||
+          work.status !== "running" ||
+          !work.checkpoint ||
+          work.checkpoint.revision !== expectedRevision
+        )
+          throw new Error("Only current checkpointed work can pause");
+        await ledger(sql).execute(accountId, `work-settle:${workId}`, {
+          kind: "settle",
+          reservationId: `work:${workId}`,
+          credits: work.charged,
+        });
+        work.status = "completed";
+        work.pause = { reason, revision: expectedRevision };
+        await save(sql, accountId, workId, work);
+        return work;
+      });
+    },
+    /** Atomically claim one funded successor with copied progress, preserving
+     * prior charges. Call within the same transaction as successor outbox enqueue.
+     * Host validates immutable plan/ownership and authorizes the new budget. */
+    continueDeferred: (
+      accountId: string,
+      previousWorkId: string,
+      previousBinding: DeferredCreditBinding,
+      expectedRevision: number,
+      workId: string,
+      binding: DeferredCreditBinding,
+      budget: number,
+      admit?: () => Promise<CreditWorkAdmission>,
+    ): Promise<{ fresh: boolean; work: CreditWork }> => {
+      id(accountId);
+      id(previousWorkId);
+      id(workId);
+      integer(expectedRevision);
+      id(binding.effectId);
+      id(binding.authorizationId);
+      integer(budget);
+      if (
+        !budget ||
+        previousWorkId === workId ||
+        previousBinding.effectId === binding.effectId ||
+        binding.authorizationId !== previousBinding.authorizationId
+      )
+        throw new Error(
+          "A continuation requires a new work and effect identity",
+        );
+      return client.transaction(async (sql) => {
+        await sql.query(
+          `SELECT account_id FROM ${n}.accounts WHERE account_id=$1 FOR UPDATE`,
+          [accountId],
+        );
+        const prior = await read(sql, accountId, previousWorkId);
+        if (!prior) throw new Error("Credit work does not exist");
+        bindingMatches(prior, previousBinding);
+        if (
+          prior.uncertain ||
+          prior.status !== "completed" ||
+          !prior.pause ||
+          !prior.checkpoint ||
+          prior.pause.revision !== expectedRevision ||
+          prior.checkpoint.revision !== expectedRevision
+        )
+          throw new Error("Work is not at the requested resumable pause");
+        if (prior.pause.continuationId && prior.pause.continuationId !== workId)
+          throw new Error("Paused work already has a continuation");
+        const tx = createPostgresCreditWork(
+          { ...sql, transaction: (run) => run(sql) },
+          schema,
+        );
+        const claim = await tx.begin(
+          accountId,
+          workId,
+          prior.request,
+          budget,
+          admit,
+          prior.funding,
+        );
+        if (!claim.fresh) {
+          bindingMatches(claim.work, binding);
+          if (claim.work.previousWorkId !== previousWorkId)
+            throw new Error("Continuation input mismatch");
+          return claim;
+        }
+        const work = {
+          ...claim.work,
+          deferred: { ...binding },
+          previousWorkId,
+          checkpoint: { ...prior.checkpoint },
+        };
+        prior.pause.continuationId = workId;
+        await save(sql, accountId, previousWorkId, prior);
+        await save(sql, accountId, workId, work);
+        return { fresh: true, work };
+      });
+    },
     /** Bound durable progress only: the caller must already own the effect lease.
      * CAS prevents stale workers from overwriting a newer checkpoint. */
     checkpointDeferred: (
@@ -243,6 +373,10 @@ export const createPostgresCreditWork = (
         const work = await read(sql, accountId, workId);
         if (!work) throw new Error("Credit work does not exist");
         bindingMatches(work, binding);
+        if (work.status === "running") {
+          work.uncertain = true;
+          await save(sql, accountId, workId, work);
+        }
         return work;
       });
     },
@@ -303,7 +437,7 @@ export const createPostgresCreditWork = (
             throw new Error("Invalid credit admission policy");
           if (!canAffordCreditStep(budget, 0, admission.minimumCredits))
             throw new Error(
-              `This work requires at least ${admission.minimumCredits} service credits. No credits reserved; request a new estimate and user-approved budget.`,
+              `This work requires at least ${admission.minimumCredits} service credits. No credits reserved; additional available credits are required.`,
             );
         }
         await ledger(sql).execute(accountId, `work-reserve:${workId}`, {
@@ -387,4 +521,5 @@ export const createPostgresCreditWork = (
       failed = false,
     ) => finish(accountId, workId, result, failed),
   };
+  return api;
 };

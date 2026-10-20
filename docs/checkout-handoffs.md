@@ -8,7 +8,6 @@ The limited session reveals only its fixed quote and purchase status. It cannot 
 
 Host approval and supported UI are independent. MCP form elicitation must not collect payment credentials; use an approved external browser interaction. The handoff alone does not approve a commerce channel. Sources: https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation and the MCP package `docs/commerce-host-rules.md`.
 
-
 ## Amount selection and payment locking
 
 `selectQuote(session, csrf, expectedId, serverQuote, browserAccountId)` atomically
@@ -35,3 +34,11 @@ For production Vue builds, import `@absolutejs/billing/vue/CreditAmountPicker`
 and include `@absolutejs/billing/vue/credit-amount-picker.css` in the application
 stylesheet. This universal render module works with SSR and hydration without
 requiring the host compiler to transform package-owned `.vue` source.
+
+Checkout `issue(accountId, quote, { workId, returnPath })` can carry optional
+account-bound continuation context. `returnPath` must be a local absolute path;
+external URLs, protocol-relative paths, backslashes and control characters are
+rejected. Quote replacement preserves the context. Apply the exported schema
+migration before using it. This context is navigation only: verify the actual
+credit grant and task ownership before enabling Continue. A checkout return or
+payment callback must never blindly replay the original operation.
