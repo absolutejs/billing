@@ -5,6 +5,16 @@
 		{
 			"changes": [
 				{
+					"kind": "fixed",
+					"summary": "Report Apollo person-enrichment request quotas separately from unavailable paid lead-credit balances"
+				}
+			],
+			"date": "2026-11-01",
+			"version": "0.18.1"
+		},
+		{
+			"changes": [
+				{
 					"kind": "added",
 					"summary": "Add funded continuation segments and durable checkout return context without repeating prior work",
 					"symbols": [

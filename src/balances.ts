@@ -348,45 +348,59 @@ const elevenLabsBalance = async (creds: { apiKey: string }) => {
 };
 
 // --- Apollo: real per-endpoint API quota (master key required) ------------
-const pickBusiestDayQuota = (data: unknown) => {
-  let consumed = 0;
-  let limit = 0;
-  if (!isRecord(data)) return { consumed, limit };
-  for (const value of Object.values(data)) {
-    const day = isRecord(value) && isRecord(value.day) ? value.day : null;
-    if (!day) continue;
-    const dayLimit = numberOf(day.limit) ?? 0;
-    if (dayLimit <= limit) continue;
-    limit = dayLimit;
-    consumed = numberOf(day.consumed) ?? 0;
+const apolloEnrichmentQuota = (data: unknown) => {
+  if (!isRecord(data)) return null;
+  for (const [endpoint, value] of Object.entries(data)) {
+    let identity: unknown;
+    try {
+      identity = JSON.parse(endpoint);
+    } catch {
+      continue;
+    }
+    if (
+      !Array.isArray(identity) ||
+      identity[0] !== "api/v1/people" ||
+      identity[1] !== "match" ||
+      !isRecord(value)
+    )
+      continue;
+    for (const window of ["day", "hour", "minute"] as const) {
+      const quota = value[window];
+      if (!isRecord(quota)) continue;
+      const limit = numberOf(quota.limit);
+      const consumed = numberOf(quota.consumed);
+      if (limit === null || consumed === null || limit <= 0 || consumed < 0)
+        continue;
+      return { consumed, limit, window };
+    }
   }
-
-  return { consumed, limit };
+  return null;
 };
 
-const apolloResult = (consumed: number, limit: number) => {
-  if (limit === 0) {
-    const noQuota: ProviderBalance = {
+const apolloResult = (
+  quota: ReturnType<typeof apolloEnrichmentQuota>,
+): ProviderBalance => {
+  const note =
+    "Person-enrichment request allowance only. Apollo's paid lead-credit balance is not reported here; available requests do not confirm enrichment is funded. Other rate-limit windows also apply.";
+  if (!quota)
+    return {
       ...base("apollo", "Apollo"),
-      detail: "Reached Apollo (no day quota in response)",
-      note: "If usage stats 403, the key must be an Apollo master key.",
+      detail: "Person-enrichment request allowance unavailable",
+      note,
       status: "ok",
     };
-
-    return noQuota;
-  }
-  const result: ProviderBalance = {
+  const { consumed, limit, window } = quota;
+  return {
     ...base("apollo", "Apollo"),
-    detail: `${Math.max(0, limit - consumed)} / ${limit} calls left today`,
+    detail: `${Math.max(0, limit - consumed)} / ${limit} enrichment requests left this ${window}`,
     kind: "quota",
     limit,
+    note,
     remaining: Math.max(0, limit - consumed),
     status: "ok",
-    unit: "calls",
+    unit: `requests/${window}`,
     used: consumed,
   };
-
-  return result;
 };
 
 const apolloBalance = async (creds: { apiKey: string }) => {
@@ -398,9 +412,7 @@ const apolloBalance = async (creds: { apiKey: string }) => {
       { "Content-Type": "application/json", "X-Api-Key": creds.apiKey },
       { method: "POST" },
     );
-    const { consumed, limit } = pickBusiestDayQuota(data);
-
-    return apolloResult(consumed, limit);
+    return apolloResult(apolloEnrichmentQuota(data));
   } catch (error) {
     return errored(
       "apollo",
