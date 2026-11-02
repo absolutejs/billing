@@ -11,7 +11,7 @@
  *
  * Coverage by what each vendor exposes:
  *   - balance ($ left):   Twilio, Deepgram
- *   - quota (units left):  ElevenLabs (chars), Apollo (calls/day), Brave (queries)
+ *   - quota (units left):  ElevenLabs (chars), Apollo (paid lead credits), Brave (queries)
  *   - cost ($ spent):      Anthropic, OpenAI — no balance API exists, only spend
  *
  * Brave has no API at all; the host app captures rate-limit headers off its own
@@ -378,48 +378,81 @@ const apolloEnrichmentQuota = (data: unknown) => {
 };
 
 const apolloResult = (
+  credits: unknown,
   quota: ReturnType<typeof apolloEnrichmentQuota>,
 ): ProviderBalance => {
-  const note =
-    "Person-enrichment request allowance only. Apollo's paid lead-credit balance is not reported here; available requests do not confirm enrichment is funded. Other rate-limit windows also apply.";
-  if (!quota)
+  const stats =
+    isRecord(credits) && isRecord(credits.credit_usage_stats)
+      ? credits.credit_usage_stats
+      : null;
+  const lead = stats && isRecord(stats.lead_credit) ? stats.lead_credit : null;
+  const remaining = lead ? numberOf(lead.left_over) : null;
+  const limit = lead ? numberOf(lead.limit) : null;
+  const used = lead ? numberOf(lead.consumed) : null;
+  const cycle =
+    isRecord(credits) && isRecord(credits.current_credit_cycle)
+      ? credits.current_credit_cycle
+      : null;
+  const end =
+    cycle && typeof cycle.end_date === "string"
+      ? Date.parse(cycle.end_date)
+      : Number.NaN;
+  const resetDate = Number.isFinite(end) ? new Date(end).toISOString() : null;
+  const capacity = quota
+    ? `API rate limit: ${Math.max(0, quota.limit - quota.consumed)} / ${quota.limit} enrichment requests available this ${quota.window}. This is separate from paid credits.`
+    : "API rate-limit allowance unavailable.";
+  if (remaining === null || remaining < 0)
     return {
       ...base("apollo", "Apollo"),
-      detail: "Person-enrichment request allowance unavailable",
-      note,
-      status: "ok",
+      detail: "Paid lead-credit balance unavailable",
+      note: `Check Apollo billing or grant the key access to credit usage stats. ${capacity}`,
+      status: "error",
     };
-  const { consumed, limit, window } = quota;
+  const exhausted = remaining === 0;
+  const consumption =
+    used !== null && used >= 0
+      ? `${used.toLocaleString("en-US")}${limit !== null && limit >= 0 ? ` of ${limit.toLocaleString("en-US")}` : ""} lead credits used this cycle.`
+      : "Used-credit total unavailable.";
+  const reset = resetDate ? ` Cycle ends ${resetDate.slice(0, 10)}.` : "";
   return {
     ...base("apollo", "Apollo"),
-    detail: `${Math.max(0, limit - consumed)} / ${limit} enrichment requests left this ${window}`,
+    detail: `${remaining.toLocaleString("en-US")} lead credits remaining${exhausted ? " — enrichment blocked" : ""}`,
     kind: "quota",
-    limit,
-    note,
-    remaining: Math.max(0, limit - consumed),
-    status: "ok",
-    unit: `requests/${window}`,
-    used: consumed,
+    limit: limit !== null && limit >= 0 ? limit : null,
+    note: `${consumption}${reset} ${exhausted ? "Replenish the connected Apollo account to resume enrichment. " : ""}${capacity}`,
+    remaining,
+    resetDate,
+    status: exhausted ? "error" : "ok",
+    unit: "lead credits",
+    used: used !== null && used >= 0 ? used : null,
   };
 };
 
 const apolloBalance = async (creds: { apiKey: string }) => {
   if (!creds.apiKey) return unconfigured("apollo", "Apollo", "API key unset");
-  try {
-    // POST (not GET) per Apollo's API; needs the master key.
-    const data = await fetchJson(
-      "https://api.apollo.io/api/v1/usage_stats/api_usage_stats",
-      { "Content-Type": "application/json", "X-Api-Key": creds.apiKey },
+  const headers = {
+    "Content-Type": "application/json",
+    "X-Api-Key": creds.apiKey,
+  };
+  // Both are documented zero-credit reporting calls. Rate limits are not funds.
+  const [credits, capacity] = await Promise.allSettled([
+    fetchJson(
+      "https://api.apollo.io/api/v1/usage_stats/credit_usage_stats",
+      headers,
       { method: "POST" },
-    );
-    return apolloResult(apolloEnrichmentQuota(data));
-  } catch (error) {
-    return errored(
-      "apollo",
-      "Apollo",
-      `${error} — usage stats need the Apollo master key`,
-    );
-  }
+    ),
+    fetchJson(
+      "https://api.apollo.io/api/v1/usage_stats/api_usage_stats",
+      headers,
+      { method: "POST" },
+    ),
+  ]);
+  return apolloResult(
+    credits.status === "fulfilled" ? credits.value : null,
+    capacity.status === "fulfilled"
+      ? apolloEnrichmentQuota(capacity.value)
+      : null,
+  );
 };
 
 // --- Pinecone: no usage API for an ordinary key; same host-snapshot shape --
