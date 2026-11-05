@@ -5,6 +5,19 @@
 		{
 			"changes": [
 				{
+					"kind": "added",
+					"summary": "Quote processing-fee gross-ups with exact integer rounding",
+					"symbols": [
+						"grossUpProcessingFee"
+					]
+				}
+			],
+			"date": "2026-11-05",
+			"version": "0.19.0"
+		},
+		{
+			"changes": [
+				{
 					"kind": "fixed",
 					"summary": "Read Apollo paid lead credits directly and prioritize exhausted funding over request-rate allowances"
 				}
